@@ -1,0 +1,6 @@
+[submodule "lib/Utils"]
+	path = lib/Utils
+	url = git@github.com:gendestry/Utils.git
+[submodule "lib/NewSyntaxParser"]
+	path = lib/NewSyntaxParser
+	url = git@github.com:gendestry/NewSyntaxParser.git

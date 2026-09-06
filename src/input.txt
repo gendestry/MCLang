@@ -1,0 +1,70 @@
+record Point {
+  float x;
+  float y;
+};
+
+record Segment {
+  Point head;
+  Point tail;
+  bool closed;
+};
+
+float square(float x) {
+  return x * x;
+}
+
+float lenSq(Segment s) {
+  float dx = s.tail.x - s.head.x;
+  float dy = s.tail.y - s.head.y;
+  return square(dx) + square(dy);
+}
+
+float clamp(float v, float lo, float hi) {
+  if (v < lo) {
+    return lo;
+  } else if (v > hi) {
+    return hi;
+  } else {
+    return v;
+  }
+}
+
+float walk(Segment s, float steps) {
+  float total = 0;
+  bool active = !s.closed || true;
+  for (float i = 0; i < steps; i = i + 1) {
+    if (!(i == 0) && s.closed == true && active) {
+      total = total + lenSq(s) / i;
+    } else {
+      total = total + 1;
+    }
+  }
+  while (total > 100 || total != total) {
+    total = total / 2;
+  }
+  return clamp(total, 0, 100);
+}
+
+float poly(float a, float b, float c, float t) {
+  float tsq = t * t;
+  float acc = a * tsq + b * t + c;
+  acc = acc / (1 + tsq) - 0.5;
+  return acc;
+}
+
+void run(Segment s, float seed) {
+  float x = seed;
+  s.head.x = origin.x + poly(1, 2, 3, x);
+  {
+    float y = square(x) + lenSq(s);
+    float z = poly(square(y), square(x + 1), y / 2, (x + y) * (x - y));
+    x = z * 2 - y / 4 + 1;
+    {
+      float deep = ((x)) + (((y + z)));
+      deep = deep * (deep - 1) / (deep + 1);
+      s.tail.y = deep;
+    }
+  }
+  square(x + 1) * 2 - 3;
+  return;
+}

@@ -1,0 +1,47 @@
+entry: decl+ ;
+decl        : recdecl | fundecl | vardecl ;
+vardecl     : type IDENTIFIER (EQ expr)? SEMIC;
+fundecl     : type IDENTIFIER LPAREN (type IDENTIFIER (COMMA type IDENTIFIER)*)? RPAREN compstmt;
+recdecl     : RECORD IDENTIFIER LCURLY (vardecl)+ RCURLY SEMIC;
+
+type        : primtype | namedtype;
+primtype    : FLOAT | BOOL | VOID ;
+namedtype   : IDENTIFIER;
+
+expr        : orexpr n_orexpr? ;
+n_orexpr    : OR orexpr n_orexpr? ;
+
+orexpr      : andexpr n_andexpr? ;
+n_andexpr   : AND andexpr n_andexpr? ;
+
+andexpr     : eqexpr n_eqexpr? ;
+n_eqexpr    : (ISEQ | NEQ) eqexpr n_eqexpr? ;
+
+eqexpr      : relexpr n_relexpr? ;
+n_relexpr   : (LEQ | GEQ | LT | GT) relexpr n_relexpr? ;
+
+relexpr     : plusexpr n_plusexpr? ;
+n_plusexpr  : (PLUS | MINUS) plusexpr n_plusexpr? ;
+
+plusexpr    : mulexpr n_mulexpr? ;
+n_mulexpr   : (MUL | DIV) mulexpr n_mulexpr? ;
+
+mulexpr     : unaryexpr ;
+unaryexpr   : NOT unaryexpr | accessexpr ;
+accessexpr  : atom (DOT IDENTIFIER)* ;
+atom        : NUM | TRUE | FALSE | group | funcall | namedexpr;
+namedexpr   : IDENTIFIER;
+funcall     : IDENTIFIER LPAREN (expr (COMMA expr)*)? RPAREN;
+group       : LPAREN expr RPAREN ;
+
+stmt        : compstmt | ifstmt | whilestmt | forstmt | vardeclstmt | exprstmt | assignstmt | returnstmt;
+ifstmt      : IF LPAREN expr RPAREN stmt (ELSE stmt)? ;
+whilestmt   : WHILE LPAREN expr RPAREN stmt ;
+forstmt     : FOR LPAREN forinit expr SEMIC forstep RPAREN stmt ;
+forinit     : vardecl | assignstmt | SEMIC ;
+forstep     : expr EQ expr ;
+vardeclstmt : vardecl;
+returnstmt  : RETURN expr? SEMIC;
+assignstmt  : expr EQ expr SEMIC;
+exprstmt    : expr SEMIC;
+compstmt    : LCURLY stmt* RCURLY;

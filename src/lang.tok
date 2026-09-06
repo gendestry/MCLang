@@ -1,0 +1,41 @@
+NUM = ([1-9][0-9]* | '0') ('.' [0-9]+)?
+!WHITESPACE = (' ' | \n)+
+
+FLOAT = 'float'
+VOID = 'void'
+BOOL = 'bool'
+RETURN = 'return'
+RECORD = 'record'
+FOR = 'for'
+WHILE = 'while'
+IF = 'if'
+ELSE = 'else'
+TRUE = 'true'
+FALSE = 'false'
+
+PLUS = '+'
+MINUS = '-'
+MUL = '*'
+DIV = '/'
+
+NEQ = '!='
+ISEQ = '=='
+LEQ = '<='
+GEQ = '>='
+AND = '&&'
+OR = '||'
+
+LT = '<'
+GT = '>'
+NOT = '!'
+EQ = '='
+
+LPAREN = '('
+RPAREN = ')'
+LCURLY = '{'
+RCURLY = '}'
+COMMA = ','
+DOT = '.'
+SEMIC = ';'
+
+IDENTIFIER = \T+
