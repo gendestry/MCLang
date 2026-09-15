@@ -14,6 +14,7 @@
 //    - `return` carries a value of the function's return type (and nothing in a
 //      void function)
 //    - member access names a real field of the base's record
+//    - indexing is applied to an array, with a float index
 //    - nothing is declared with type void
 //
 //  Errors are collected, not thrown: an expression that fails to type becomes
@@ -21,6 +22,7 @@
 //  cascade into a page of follow-on complaints.
 
 #pragma once
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -47,6 +49,7 @@ namespace Basic {
         // ---- Type ----
         void visit(AtomicType &t) override;
         void visit(NamedType &t) override;
+        void visit(ArrayType &t) override;
 
         // ---- Expr ----
         void visit(NumberExpr &e) override;
@@ -57,6 +60,7 @@ namespace Basic {
         void visit(CallExpr &e) override;
         void visit(NamedExpr &e) override;
         void visit(AccessExpr &e) override;
+        void visit(IndexExpr &e) override;
 
         // ---- Stmt ----
         void visit(CompoundStmt &s) override;
@@ -78,8 +82,12 @@ namespace Basic {
         // own name. Error is the "already complained about this" type: it matches
         // anything, so it never produces a second error further up the tree.
         struct Ty {
-            enum class Kind { Float, Bool, String, Void, Record, Error } kind = Kind::Error;
+            enum class Kind { Float, Bool, String, Void, Record, Array, Error } kind = Kind::Error;
             std::string record; // only meaningful when kind == Record
+            // Only meaningful when kind == Array. Shared rather than owned: a Ty is
+            // copied freely, and an element type never changes once built.
+            std::shared_ptr<const Ty> elem;
+            std::size_t length = 0;
 
             bool is(Kind k) const { return kind == k; }
             bool isError() const { return kind == Kind::Error; }
@@ -94,6 +102,12 @@ namespace Basic {
         static Ty makeVoid() { return {Ty::Kind::Void, {}}; }
         static Ty makeError() { return {Ty::Kind::Error, {}}; }
         static Ty makeRecord(std::string name) { return {Ty::Kind::Record, std::move(name)}; }
+        static Ty makeArray(Ty elem, std::size_t length) {
+            Ty t{Ty::Kind::Array, {}};
+            t.elem = std::make_shared<const Ty>(std::move(elem));
+            t.length = length;
+            return t;
+        }
 
         struct FunSig {
             Ty ret;

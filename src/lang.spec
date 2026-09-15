@@ -6,6 +6,7 @@ program Decl[]
 category Type {
     AtomicType { string prim }        # "float" | "bool" | "void"
     NamedType  { string name }        # namedtype : a record name
+    ArrayType  { Type elem; u64 length }   # type[N] (outermost length first)
 }
 
 record Param {
@@ -22,6 +23,7 @@ category Expr {
     CallExpr   { string callee; Expr[] args }      # funcall
     NamedExpr   { string callee; Expr[] args }      # funcall
     AccessExpr { Expr base; string member }        # accessexpr : p.x (left-folded)
+    IndexExpr  { Expr base; Expr index }           # accessexpr : a[i] (left-folded)
     UnaryExpr  { string op; Expr operand }         # unaryexpr : !x
 }
 

@@ -4,7 +4,7 @@ vardecl     : type IDENTIFIER (EQ expr)? SEMIC;
 fundecl     : type IDENTIFIER LPAREN (type IDENTIFIER (COMMA type IDENTIFIER)*)? RPAREN compstmt;
 recdecl     : RECORD IDENTIFIER LCURLY (vardecl)+ RCURLY SEMIC;
 
-type        : primtype | namedtype;
+type        : (primtype | namedtype) (LBRACKET NUM RBRACKET)*;
 primtype    : FLOAT | BOOL | VOID | STRING ;
 namedtype   : IDENTIFIER;
 
@@ -28,7 +28,7 @@ n_mulexpr   : (MUL | DIV) mulexpr n_mulexpr? ;
 
 mulexpr     : unaryexpr ;
 unaryexpr   : NOT unaryexpr | accessexpr ;
-accessexpr  : atom (DOT IDENTIFIER)* ;
+accessexpr  : atom ((DOT IDENTIFIER) | (LBRACKET expr RBRACKET))* ;
 atom        : NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr;
 namedexpr   : IDENTIFIER;
 funcall     : IDENTIFIER LPAREN (expr (COMMA expr)*)? RPAREN;

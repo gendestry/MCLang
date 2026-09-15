@@ -35,6 +35,14 @@ namespace Basic {
         case Kind::String: return "string";
         case Kind::Void: return "void";
         case Kind::Record: return record;
+        case Kind::Array: {
+            // Written the way it is declared: float[2][3], outermost length first.
+            std::string lengths;
+            const Ty *t = this;
+            for (; t->is(Kind::Array); t = t->elem.get())
+                lengths += "[" + std::to_string(t->length) + "]";
+            return t->name() + lengths;
+        }
         case Kind::Error: return "<error>";
         }
         return "<error>";
@@ -45,6 +53,8 @@ namespace Basic {
             return true; // already reported; do not complain twice
         if (kind != other.kind)
             return false;
+        if (kind == Kind::Array)
+            return length == other.length && elem->accepts(*other.elem);
         return kind != Kind::Record || record == other.record;
     }
 
@@ -143,12 +153,15 @@ namespace Basic {
         return m_result;
     }
 
-    // Only a name or a chain of field accesses off one can be assigned to.
+    // Only a name, or a chain of field accesses and indexing off one, can be
+    // assigned to.
     bool TypeResolver::isLValue(const Expr &e) {
         if (const auto *named = dynamic_cast<const NamedExpr *>(&e))
             return named->args.empty();
         if (const auto *access = dynamic_cast<const AccessExpr *>(&e))
             return access->base && isLValue(*access->base);
+        if (const auto *index = dynamic_cast<const IndexExpr *>(&e))
+            return index->base && isLValue(*index->base);
         return false;
     }
 
@@ -173,6 +186,16 @@ namespace Basic {
     // one here only means that error was reported; stay quiet and yield Error.
     void TypeResolver::visit(NamedType &t) {
         m_result = lookupRecord(t.name) ? makeRecord(t.name) : makeError();
+    }
+
+    void TypeResolver::visit(ArrayType &t) {
+        const Ty elem = typeOfType(t.elem);
+        if (elem.is(Ty::Kind::Void)) {
+            error("an array cannot hold void");
+            m_result = makeError();
+            return;
+        }
+        m_result = elem.isError() ? makeError() : makeArray(elem, t.length);
     }
 
     // ---- Expr ----------------------------------------------------------------
@@ -307,6 +330,26 @@ namespace Basic {
         m_result = makeError();
     }
 
+    void TypeResolver::visit(IndexExpr &e) {
+        const Ty base = typeOf(e.base);
+        const Ty index = typeOf(e.index);
+
+        if (!makeFloat().accepts(index))
+            error("array index must be float, got " + index.name());
+        if (base.isError()) {
+            m_result = makeError();
+            return;
+        }
+        if (!base.is(Ty::Kind::Array)) {
+            error("cannot index non-array type " + base.name());
+            m_result = makeError();
+            return;
+        }
+
+        m_result = *base.elem;
+        print(dimText("index ") + typeText(base.name()) + dimText(" : ") + typeText(m_result.name()));
+    }
+
     // ---- Stmt ----------------------------------------------------------------
 
     void TypeResolver::visit(CompoundStmt &s) {
@@ -339,7 +382,7 @@ namespace Basic {
         print(dimText("assign ") + typeText(target.name()) + dimText(" = ")
               + typeText(value.name()));
         if (s.target && !isLValue(*s.target))
-            error("left-hand side of an assignment must be a variable or a field");
+            error("left-hand side of an assignment must be a variable, a field or an array element");
         else if (!target.accepts(value))
             error("cannot assign " + value.name() + " to " + target.name());
     }

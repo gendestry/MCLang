@@ -39,6 +39,8 @@ MUL = \*
 DIV = /
 LPAREN = \(
 RPAREN = \)
+LBRACKET = \[
+RBRACKET = \]
 
 # ---- punctuation -------------------------------------------------------------
 COMMA = ,

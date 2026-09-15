@@ -6,7 +6,7 @@
 #include "AstPrinter.h"
 #include "Resolver.h"
 #include "TypeResolver.h"
-#include "OLD/Memory.h"
+#include "Memory.h"
 
 #include "Syntax/Engine.h"
 #include "Syntax/GrammarParser.h"

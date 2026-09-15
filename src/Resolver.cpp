@@ -122,6 +122,8 @@ namespace Basic {
 
     void Resolver::visit(NamedType &t) { use(t.name, Kind::Record, "record type"); }
 
+    void Resolver::visit(ArrayType &t) { walk(t.elem); }
+
     // ---- Expr ----------------------------------------------------------------
 
     void Resolver::visit(NumberExpr &) {}
@@ -146,6 +148,11 @@ namespace Basic {
     // Only the base is a name; the member is a field of whatever record the base
     // turns out to be, which needs types to check.
     void Resolver::visit(AccessExpr &e) { walk(e.base); }
+
+    void Resolver::visit(IndexExpr &e) {
+        walk(e.base);
+        walk(e.index);
+    }
 
     // ---- Stmt ----------------------------------------------------------------
 

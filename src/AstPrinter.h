@@ -35,6 +35,12 @@ namespace Basic {
         void visit(AtomicType &t) override { m_row = {label("AtomicType", t.prim), {}}; }
         void visit(NamedType &t) override { m_row = {label("NamedType", t.name), {}}; }
 
+        void visit(ArrayType &t) override {
+            Row r{label("ArrayType", "[" + std::to_string(t.length) + "]"), {}};
+            add(r, t.elem);
+            m_row = std::move(r);
+        }
+
         // ---- Expr ----
         void visit(NumberExpr &e) override { m_row = {label("NumberExpr", trim(e.value)), {}}; }
         void visit(BoolExpr &e) override { m_row = {label("BoolExpr", e.value ? "true" : "false"), {}}; }
@@ -65,6 +71,13 @@ namespace Basic {
         void visit(AccessExpr &e) override {
             Row r{label("AccessExpr", "." + e.member), {}};
             add(r, e.base);
+            m_row = std::move(r);
+        }
+
+        void visit(IndexExpr &e) override {
+            Row r{label("IndexExpr"), {}};
+            group(r, "base", e.base);
+            group(r, "index", e.index);
             m_row = std::move(r);
         }
 

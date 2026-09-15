@@ -25,7 +25,7 @@ namespace Basic {
         DeclPtr buildVarDecl(const Node &vardecl);    // vardecl : type IDENTIFIER (= expr)? ;
         DeclPtr buildFunDecl(const Node &fundecl);    // fundecl : type IDENTIFIER ( params ) compstmt
         DeclPtr buildRecDecl(const Node &recdecl);    // recdecl : record IDENTIFIER { vardecl+ } ;
-        TypePtr buildType(const Node &type);          // type : primtype | namedtype
+        TypePtr buildType(const Node &type);          // type : (primtype | namedtype) [N]*
         StmtPtr buildStmt(const Node &stmt);          // stmt : any of the eight statement forms
         StmtPtr buildIf(const Node &ifstmt);          // ifstmt : if ( expr ) stmt (else stmt)?
         StmtPtr buildWhile(const Node &whilestmt);    // whilestmt : while ( expr ) stmt

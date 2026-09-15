@@ -74,23 +74,42 @@ namespace Basic {
         return d;
     }
 
-    // type : primtype | namedtype      kids = [ the chosen rule node ]
+    // type : (primtype | namedtype) (LBRACKET NUM RBRACKET)*
+    //   kids = [ the chosen rule node, LBRACKET, NUM, RBRACKET, ... ]
     TypePtr AstBuilder::buildType(const Node &type) {
         const Node &inner = type.kids[0];
+        TypePtr base;
 
         if (inner.rule == "primtype") { // primtype : FLOAT | BOOL | VOID   kids = [leaf]
             auto t = std::make_unique<AtomicType>();
             t->prim = inner.kids[0].token->value; // "float" | "bool" | "void"
-            return t;
-        }
-
-        if (inner.rule == "namedtype") { // namedtype : IDENTIFIER   kids = [leaf]
+            base = std::move(t);
+        } else if (inner.rule == "namedtype") { // namedtype : IDENTIFIER   kids = [leaf]
             auto t = std::make_unique<NamedType>();
             t->name = inner.kids[0].token->value;
-            return t;
+            base = std::move(t);
+        } else {
+            throw std::runtime_error("buildType: unexpected '" + inner.rule + "'");
         }
 
-        throw std::runtime_error("buildType: unexpected '" + inner.rule + "'");
+        // The lengths are written outermost first, so wrap from the last one in:
+        // float[2][3] -> Array(Array(float, 3), 2).
+        std::vector<std::size_t> lengths;
+        for (std::size_t i = 1; i < type.kids.size(); ++i)
+            if (type.kids[i].isTokenName("NUM")) {
+                const std::string &raw = type.kids[i].token->value;
+                if (raw.find('.') != std::string::npos || std::stoull(raw) == 0)
+                    throw std::runtime_error("array length must be a positive integer, got '" + raw
+                                             + "'");
+                lengths.push_back(std::stoull(raw));
+            }
+        for (auto length = lengths.rbegin(); length != lengths.rend(); ++length) {
+            auto t = std::make_unique<ArrayType>();
+            t->elem = std::move(base);
+            t->length = *length;
+            base = std::move(t);
+        }
+        return base;
     }
 
     // stmt : compstmt | vardeclstmt | exprstmt | assignstmt | returnstmt
@@ -232,17 +251,25 @@ namespace Basic {
             return buildExpr(node.kids[0]);
         }
 
-        if (node.rule == "accessexpr") { // atom (DOT IDENTIFIER)*
-            // kids = [atom, DOT, IDENTIFIER, DOT, IDENTIFIER, ...].
-            // Fold each `.member` in, left-associative: p.x.y -> Access(Access(p, x), y).
+        if (node.rule == "accessexpr") { // atom ((DOT IDENTIFIER) | (LBRACKET expr RBRACKET))*
+            // kids = [atom, DOT, IDENTIFIER, LBRACKET, expr, RBRACKET, ...].
+            // Fold each `.member` and `[index]` in, left-associative:
+            // a[i].x -> Access(Index(a, i), x).
             ExprPtr base = buildExpr(node.kids[0]);
-            for (std::size_t i = 1; i < node.kids.size(); ++i)
-                if (node.kids[i].isTokenName("IDENTIFIER")) {
+            for (std::size_t i = 1; i < node.kids.size(); ++i) {
+                const Node &k = node.kids[i];
+                if (k.isTokenName("IDENTIFIER")) {
                     auto a = std::make_unique<AccessExpr>();
                     a->base = std::move(base);
-                    a->member = node.kids[i].token->value;
+                    a->member = k.token->value;
                     base = std::move(a);
+                } else if (k.rule == "expr") {
+                    auto ix = std::make_unique<IndexExpr>();
+                    ix->base = std::move(base);
+                    ix->index = buildExpr(k);
+                    base = std::move(ix);
                 }
+            }
             return base;
         }
 

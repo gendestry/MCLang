@@ -9,6 +9,7 @@ namespace Basic
     // ---- forward declarations ----
     struct AtomicType;
     struct NamedType;
+    struct ArrayType;
     struct NumberExpr;
     struct BoolExpr;
     struct StringExpr;
@@ -16,6 +17,7 @@ namespace Basic
     struct CallExpr;
     struct NamedExpr;
     struct AccessExpr;
+    struct IndexExpr;
     struct UnaryExpr;
     struct CompoundStmt;
     struct VarDeclStmt;
@@ -35,6 +37,7 @@ namespace Basic
         virtual ~TypeVisitor() = default;
         virtual void visit(AtomicType &) = 0;
         virtual void visit(NamedType &) = 0;
+        virtual void visit(ArrayType &) = 0;
     };
 
     struct ExprVisitor
@@ -47,6 +50,7 @@ namespace Basic
         virtual void visit(CallExpr &) = 0;
         virtual void visit(NamedExpr &) = 0;
         virtual void visit(AccessExpr &) = 0;
+        virtual void visit(IndexExpr &) = 0;
         virtual void visit(UnaryExpr &) = 0;
     };
 
@@ -120,6 +124,13 @@ namespace Basic
         void accept(TypeVisitor &v) override { v.visit(*this); }
     };
 
+    struct ArrayType : Type
+    {
+        TypePtr elem;
+        unsigned long long length = 0;
+        void accept(TypeVisitor &v) override { v.visit(*this); }
+    };
+
     struct NumberExpr : Expr
     {
         double value = 0;
@@ -164,6 +175,13 @@ namespace Basic
     {
         ExprPtr base;
         std::string member;
+        void accept(ExprVisitor &v) override { v.visit(*this); }
+    };
+
+    struct IndexExpr : Expr
+    {
+        ExprPtr base;
+        ExprPtr index;
         void accept(ExprVisitor &v) override { v.visit(*this); }
     };
 

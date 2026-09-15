@@ -75,6 +75,9 @@ namespace Basic {
             const MemLayout *layout = layoutOf(named->name);
             return layout ? layout->size : SLOT_SIZE;
         }
+        // Elements sit back to back; each is a whole number of slots already.
+        if (const auto *array = dynamic_cast<const ArrayType *>(type.get()))
+            return array->length * sizeOf(array->elem);
         return SLOT_SIZE; // float and bool are one slot; void never reaches here
     }
 
@@ -138,6 +141,7 @@ namespace Basic {
 
     void Memory::visit(AtomicType &) {}
     void Memory::visit(NamedType &) {}
+    void Memory::visit(ArrayType &) {}
 
     void Memory::visit(NumberExpr &) {}
     void Memory::visit(BoolExpr &) {}
@@ -151,6 +155,11 @@ namespace Basic {
 
     void Memory::visit(UnaryExpr &e) { walk(e.operand); }
     void Memory::visit(AccessExpr &e) { walk(e.base); }
+
+    void Memory::visit(IndexExpr &e) {
+        walk(e.base);
+        walk(e.index);
+    }
 
     // The block a call needs is the static link plus its arguments -- sized from
     // the callee's parameter types, which are known exactly, rather than from the
