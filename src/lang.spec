@@ -17,6 +17,7 @@ record Param {
 category Expr {
     NumberExpr { f64 value }           # NUM (may carry a fractional part)
     BoolExpr   { bool value }          # TRUE | FALSE
+    StringExpr { string value }        # STRING_LIT (quotes stripped)
     BinaryExpr { string op; Expr lhs; Expr rhs }   # + - * /  (left-folded)
     CallExpr   { string callee; Expr[] args }      # funcall
     NamedExpr   { string callee; Expr[] args }      # funcall

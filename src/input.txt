@@ -12,7 +12,12 @@ record Segment {  // two endpoints and a flag
   bool closed;
 };
 
+float test(Segment s1)
+{
+return s1.head.x + 1.0;
+}
+
 void main() {
     Segment seg;
-    seg.head.x = 1.00012;
+    seg.head.x = test(seg);
 }

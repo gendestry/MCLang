@@ -11,6 +11,7 @@ namespace Basic
     struct NamedType;
     struct NumberExpr;
     struct BoolExpr;
+    struct StringExpr;
     struct BinaryExpr;
     struct CallExpr;
     struct NamedExpr;
@@ -41,6 +42,7 @@ namespace Basic
         virtual ~ExprVisitor() = default;
         virtual void visit(NumberExpr &) = 0;
         virtual void visit(BoolExpr &) = 0;
+        virtual void visit(StringExpr &) = 0;
         virtual void visit(BinaryExpr &) = 0;
         virtual void visit(CallExpr &) = 0;
         virtual void visit(NamedExpr &) = 0;
@@ -127,6 +129,12 @@ namespace Basic
     struct BoolExpr : Expr
     {
         bool value = false;
+        void accept(ExprVisitor &v) override { v.visit(*this); }
+    };
+
+    struct StringExpr : Expr
+    {
+        std::string value;
         void accept(ExprVisitor &v) override { v.visit(*this); }
     };
 

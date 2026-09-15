@@ -44,9 +44,9 @@ target_link_libraries(synparser PUBLIC utils)
 # --------------------------------------------------
 file(GLOB_RECURSE MCLANG_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+list(FILTER MCLANG_SOURCES EXCLUDE REGEX "/src/OLD/")
 
-add_executable(MCLang ${MCLANG_SOURCES}
-        src/AstBuilder.h)
+add_executable(MCLang ${MCLANG_SOURCES})
 target_compile_features(MCLang PRIVATE cxx_std_23)
 target_link_libraries(MCLang PRIVATE utils synparser)
 target_include_directories(MCLang PRIVATE

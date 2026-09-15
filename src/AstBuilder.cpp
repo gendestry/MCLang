@@ -246,7 +246,7 @@ namespace Basic {
             return base;
         }
 
-        if (node.rule == "atom") { // NUM | TRUE | FALSE | group | funcall | namedexpr
+        if (node.rule == "atom") { // NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr
             const Node &k = node.kids[0];
             if (k.isTokenName("NUM")) {
                 auto n = std::make_unique<NumberExpr>();
@@ -257,6 +257,14 @@ namespace Basic {
             if (k.isTokenName("TRUE") || k.isTokenName("FALSE")) {
                 auto n = std::make_unique<BoolExpr>();
                 n->value = k.isTokenName("TRUE");
+                return n;
+            }
+
+            if (k.isTokenName("STRING_LIT")) {
+                // The token still carries its delimiters; the value does not.
+                auto n = std::make_unique<StringExpr>();
+                const std::string &raw = k.token->value;
+                n->value = raw.substr(1, raw.size() - 2);
                 return n;
             }
             return buildExpr(k); // group, funcall or namedexpr node

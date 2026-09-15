@@ -5,7 +5,7 @@ fundecl     : type IDENTIFIER LPAREN (type IDENTIFIER (COMMA type IDENTIFIER)*)?
 recdecl     : RECORD IDENTIFIER LCURLY (vardecl)+ RCURLY SEMIC;
 
 type        : primtype | namedtype;
-primtype    : FLOAT | BOOL | VOID ;
+primtype    : FLOAT | BOOL | VOID | STRING ;
 namedtype   : IDENTIFIER;
 
 expr        : orexpr n_orexpr? ;
@@ -29,7 +29,7 @@ n_mulexpr   : (MUL | DIV) mulexpr n_mulexpr? ;
 mulexpr     : unaryexpr ;
 unaryexpr   : NOT unaryexpr | accessexpr ;
 accessexpr  : atom (DOT IDENTIFIER)* ;
-atom        : NUM | TRUE | FALSE | group | funcall | namedexpr;
+atom        : NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr;
 namedexpr   : IDENTIFIER;
 funcall     : IDENTIFIER LPAREN (expr (COMMA expr)*)? RPAREN;
 group       : LPAREN expr RPAREN ;

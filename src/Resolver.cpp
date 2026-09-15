@@ -126,6 +126,7 @@ namespace Basic {
 
     void Resolver::visit(NumberExpr &) {}
     void Resolver::visit(BoolExpr &) {}
+    void Resolver::visit(StringExpr &) {}
 
     void Resolver::visit(BinaryExpr &e) {
         walk(e.lhs);
