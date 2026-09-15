@@ -9,6 +9,7 @@
 #include "Memory.h"
 #include "ImcGen/ImcGen.h"
 #include "ImcLin/ImcLin.h"
+#include "ImcOpt/ConstantFolder.h"
 #include "ImcLin/Interpreter.h"
 #include "McGen/McGen.h"
 
@@ -19,6 +20,7 @@
 
 int main(int argc, char** argv) {
     bool printNames = true;
+    bool optimize = true; // run the ImcOpt passes between ImcGen and ImcLin
     Utils::Logger logger("main");
     Utils::Logger::setLevel(Utils::Logger::Level::INFO);
 
@@ -116,6 +118,16 @@ int main(int argc, char** argv) {
     }
 
     logger.info("Intermediate code OK");
+
+    // 7b. Optimize the trees: fold constants and drop identities like x + 0.
+    if (optimize) {
+        Basic::ConstantFolder folder;
+        folder.setPrint(printNames);
+        std::size_t rewrites = 0;
+        for (Basic::ImcGen::Function &f : imcGen.functions())
+            rewrites += folder.run(f.frame->label, f.body);
+        logger.info("Constant folding OK ({} rewrite(s))", rewrites);
+    }
 
     // 8. Linearize: data for globals and strings, a flat statement list per function.
     Basic::ImcLin imcLin;
