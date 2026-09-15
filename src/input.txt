@@ -12,12 +12,20 @@ record Segment {  // two endpoints and a flag
   bool closed;
 };
 
-float test(Segment s1)
+float test(Segment s1, float v)
 {
-return s1.head.x + 1.0;
+return s1.head.x + v;
 }
 
-void main() {
+void add(&float v)
+{
+  v = v + 1.0;
+}
+
+float main() {
     Segment seg;
-    seg.head.x = test(seg);
+    float a = 3.0;
+    add(&a);
+    seg.head.x = test(seg, 3.5) + a;
+    return seg.head.x;
 }

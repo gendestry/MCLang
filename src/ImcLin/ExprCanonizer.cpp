@@ -28,9 +28,10 @@ namespace Basic {
         }
 
         ImcExprPtr value = canonize(expr);
-        // Nothing that runs later can change a constant or a label, and temps are
-        // never reassigned once set (FP is fixed for the body, call results and
-        // parked values each get a fresh one), so copying any of them is waste.
+        // Nothing that runs later can change a constant or a label, and a temp is
+        // not reassigned once it is read: FP is fixed for the body, call results
+        // and parked values each get a fresh one, and the result of && / || is
+        // only reassigned inside its own SEXPR, before anything reads it.
         if (dynamic_cast<ImcCONST *>(value.get()) || dynamic_cast<ImcNAME *>(value.get())
             || dynamic_cast<ImcTEMP *>(value.get()))
             return value;

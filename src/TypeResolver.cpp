@@ -43,6 +43,7 @@ namespace Basic {
                 lengths += "[" + std::to_string(t->length) + "]";
             return t->name() + lengths;
         }
+        case Kind::Ref: return "&" + elem->name();
         case Kind::Error: return "<error>";
         }
         return "<error>";
@@ -53,7 +54,7 @@ namespace Basic {
             return true; // already reported; do not complain twice
         if (kind != other.kind)
             return false;
-        if (kind == Kind::Array)
+        if (kind == Kind::Array || kind == Kind::Ref) // a Ref's length is always 0
             return length == other.length && elem->accepts(*other.elem);
         return kind != Kind::Record || record == other.record;
     }
@@ -196,6 +197,16 @@ namespace Basic {
             return;
         }
         m_result = elem.isError() ? makeError() : makeArray(elem, t.length);
+    }
+
+    void TypeResolver::visit(RefType &t) {
+        const Ty elem = typeOfType(t.elem);
+        if (elem.is(Ty::Kind::Void)) {
+            error("cannot take void by reference");
+            m_result = makeError();
+            return;
+        }
+        m_result = elem.isError() ? makeError() : makeRef(elem);
     }
 
     // ---- Expr ----------------------------------------------------------------
@@ -350,6 +361,19 @@ namespace Basic {
         print(dimText("index ") + typeText(base.name()) + dimText(" : ") + typeText(m_result.name()));
     }
 
+    // The grammar only allows `&` on a call argument, so this is always the
+    // address a `&T` parameter will hold -- and that has to be somewhere real.
+    void TypeResolver::visit(RefExpr &e) {
+        const Ty operand = typeOf(e.operand);
+        if (e.operand && !isLValue(*e.operand)) {
+            error("only a variable, a field or an array element can be passed by reference");
+            m_result = makeError();
+            return;
+        }
+        m_result = operand.isError() ? makeError() : makeRef(operand);
+        print(dimText("ref : ") + typeText(m_result.name()));
+    }
+
     // ---- Stmt ----------------------------------------------------------------
 
     void TypeResolver::visit(CompoundStmt &s) {
@@ -442,7 +466,9 @@ namespace Basic {
             if (type.is(Ty::Kind::Void))
                 error("parameter '" + d.params[i].name + "' of '" + d.name
                       + "' cannot have type void");
-            declare(d.params[i].name, type);
+            // Inside the body a reference reads like the value it points to, so
+            // `a.f` works unchanged; only the call has to spell out `&`.
+            declare(d.params[i].name, type.is(Ty::Kind::Ref) ? *type.elem : type);
         }
 
         // Params and the body's top-level locals share one scope, matching how

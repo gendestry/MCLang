@@ -78,6 +78,9 @@ namespace Basic {
         // Elements sit back to back; each is a whole number of slots already.
         if (const auto *array = dynamic_cast<const ArrayType *>(type.get()))
             return array->length * sizeOf(array->elem);
+        // A reference is an address, however big the thing it points to.
+        if (dynamic_cast<const RefType *>(type.get()))
+            return SLOT_SIZE;
         return SLOT_SIZE; // float and bool are one slot; void never reaches here
     }
 
@@ -142,6 +145,7 @@ namespace Basic {
     void Memory::visit(AtomicType &) {}
     void Memory::visit(NamedType &) {}
     void Memory::visit(ArrayType &) {}
+    void Memory::visit(RefType &) {}
 
     void Memory::visit(NumberExpr &) {}
     void Memory::visit(BoolExpr &) {}
@@ -160,6 +164,8 @@ namespace Basic {
         walk(e.base);
         walk(e.index);
     }
+
+    void Memory::visit(RefExpr &e) { walk(e.operand); }
 
     // The block a call needs is the static link plus its arguments -- sized from
     // the callee's parameter types, which are known exactly, rather than from the

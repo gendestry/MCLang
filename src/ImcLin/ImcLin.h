@@ -22,10 +22,15 @@
 #include "ImcLin/data/LinDataChunk.h"
 
 namespace Basic {
+    class ImcGen;
     class Memory;
 
     class ImcLin {
     public:
+        // The whole phase: data for every global and string literal, then a code
+        // chunk per function. Takes the function bodies over from `imcGen`.
+        void compute(const Program &program, const Memory &memory, ImcGen &imcGen);
+
         // One data chunk per global variable, in declaration order.
         void collectData(const Program &program, const Memory &memory);
 
@@ -44,6 +49,7 @@ namespace Basic {
         // CJUMP(c, pos, neg) -> CJUMP(c, pos, fall), LABEL fall, JUMP neg
         static std::vector<ImcStmtPtr> linearize(std::vector<ImcStmtPtr> stmts);
 
+        void printCode(const LinCodeChunk &chunk) const;
         void print(const std::string &message) const;
 
         std::vector<LinDataChunk> m_data;

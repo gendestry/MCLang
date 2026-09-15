@@ -41,24 +41,32 @@ namespace Basic {
         return d;
     }
 
-    // fundecl : type IDENTIFIER LPAREN (type IDENTIFIER (COMMA type IDENTIFIER)*)?
-    //           RPAREN compstmt
-    //   kids = [type, IDENTIFIER, LPAREN, <flat params...>, RPAREN, compstmt]
+    // fundecl : type IDENTIFIER LPAREN (param (COMMA param)*)? RPAREN compstmt
+    //   kids = [type, IDENTIFIER, LPAREN, param, COMMA, param, ..., RPAREN, compstmt]
     DeclPtr AstBuilder::buildFunDecl(const Node &f) {
         auto d = std::make_unique<FunDecl>();
         d->returnType = buildType(f.kids[0]);
         d->name = f.kids[1].token->value;
 
-        // Params are a flat run of (type IDENTIFIER) pairs -- COMMA and the
-        // parens are leaves we skip -- ending at the compstmt body.
+        // COMMA and the parens are leaves we skip; the body ends the run.
         for (std::size_t i = 3; i < f.kids.size(); ++i) {
             const Node &k = f.kids[i];
             if (k.rule == "compstmt") {
                 d->body = buildCompound(k);
                 break;
             }
-            if (k.rule == "type")
-                d->params.push_back({buildType(k), f.kids[i + 1].token->value});
+            if (k.rule != "param")
+                continue;
+
+            // param : AMP? type IDENTIFIER   kids = [AMP, type, IDENTIFIER] | [type, IDENTIFIER]
+            const bool byRef = k.kids[0].isTokenName("AMP");
+            TypePtr type = buildType(k.kids[byRef ? 1 : 0]);
+            if (byRef) {
+                auto ref = std::make_unique<RefType>();
+                ref->elem = std::move(type);
+                type = std::move(ref);
+            }
+            d->params.push_back({std::move(type), k.kids[byRef ? 2 : 1].token->value});
         }
         return d;
     }
@@ -306,12 +314,22 @@ namespace Basic {
         if (node.rule == "group") // group : LPAREN expr RPAREN
             return buildExpr(node.kids[1]);
 
-        if (node.rule == "funcall") { // IDENTIFIER LPAREN (expr (COMMA expr)*)? RPAREN
+        if (node.rule == "funcall") { // IDENTIFIER LPAREN (arg (COMMA arg)*)? RPAREN
             auto call = std::make_unique<CallExpr>();
             call->callee = node.kids[0].token->value;
-            for (std::size_t i = 2; i < node.kids.size(); ++i)
-                if (node.kids[i].rule == "expr")
-                    call->args.push_back(buildExpr(node.kids[i]));
+            for (std::size_t i = 2; i < node.kids.size(); ++i) {
+                const Node &arg = node.kids[i];
+                if (arg.rule != "arg")
+                    continue;
+                // arg : (AMP expr) | expr   kids = [AMP, expr] | [expr]
+                if (arg.kids[0].isTokenName("AMP")) {
+                    auto ref = std::make_unique<RefExpr>();
+                    ref->operand = buildExpr(arg.kids[1]);
+                    call->args.push_back(std::move(ref));
+                } else {
+                    call->args.push_back(buildExpr(arg.kids[0]));
+                }
+            }
             return call;
         }
 

@@ -7,6 +7,9 @@
 #include "Resolver.h"
 #include "TypeResolver.h"
 #include "Memory.h"
+#include "ImcGen/ImcGen.h"
+#include "ImcLin/ImcLin.h"
+#include "ImcLin/Interpreter.h"
 
 #include "Syntax/Engine.h"
 #include "Syntax/GrammarParser.h"
@@ -100,5 +103,35 @@ int main(int argc, char** argv) {
     memory.compute(program);
 
     logger.info("Memory layout OK");
+
+    // 7. Lower to intermediate code: a statement tree per function body.
+    Basic::ImcGen imcGen(resolver, memory);
+    imcGen.setPrint(printNames);
+    if (!imcGen.compute(program)) {
+        for (const std::string &e : imcGen.errors())
+            logger.error("{}", e);
+        logger.error("Intermediate code generation failed with {} error(s)", imcGen.errors().size());
+        return 1;
+    }
+
+    logger.info("Intermediate code OK");
+
+    // 8. Linearize: data for globals and strings, a flat statement list per function.
+    Basic::ImcLin imcLin;
+    imcLin.setPrint(printNames);
+    imcLin.compute(program, memory, imcGen);
+
+    logger.info("Linearization OK");
+
+    // 9. Run it: interpret the linearized code, starting at main.
+    Basic::Interpreter interpreter(imcLin);
+    interpreter.setPrint(printNames); // --print shows every global's final value
+    try {
+        const double result = interpreter.run("main");
+        logger.info("main returned {}", result);
+    } catch (const std::exception &e) {
+        logger.error("Runtime error: {}", e.what());
+        return 1;
+    }
     return 0;
 }

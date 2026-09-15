@@ -32,6 +32,7 @@ OR = \|\|
 LT = <
 GT = >
 NOT = [!]
+AMP = &
 EQ = [=]
 PLUS = \+
 MINUS = -

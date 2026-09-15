@@ -6,6 +6,7 @@
 
 #include <iostream>
 
+#include "ImcGen/ImcGen.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -29,6 +30,21 @@ namespace Basic {
         std::cout << "  " << message << std::endl;
     }
 
+    void ImcLin::compute(const Program &program, const Memory &memory, ImcGen &imcGen) {
+        m_data.clear();
+        m_code.clear();
+
+        collectData(program, memory);
+        for (const ImcGen::String &s : imcGen.strings()) {
+            // One byte per character plus the terminating zero.
+            const LinDataChunk &chunk = m_data.emplace_back(s.label, s.value.size() + 1, s.value);
+            print(dimText("data ") + chunk.toString());
+        }
+
+        for (ImcGen::Function &f : imcGen.functions())
+            addCode(*f.frame, std::move(f.body), f.entry, f.exit);
+    }
+
     void ImcLin::collectData(const Program &program, const Memory &memory) {
         for (const DeclPtr &d : program) {
             const auto *var = dynamic_cast<const VarDecl *>(d.get());
@@ -48,15 +64,33 @@ namespace Basic {
         if (body)
             for (ImcStmtPtr &s : StmtCanonizer().canonize(*body))
                 stmts.push_back(std::move(s));
-        stmts.push_back(std::make_unique<ImcJUMP>(exit));
+        // A body that can fall off its end still has to reach the epilogue. One
+        // that already ends in a jump (a trailing `return`) cannot fall off.
+        if (!dynamic_cast<ImcJUMP *>(stmts.back().get()))
+            stmts.push_back(std::make_unique<ImcJUMP>(exit));
 
         const LinCodeChunk &chunk =
             m_code.emplace_back(&frame, std::move(entry), std::move(exit), linearize(std::move(stmts)));
+        printCode(chunk);
+    }
 
-        print(dimText("code ") + nameText(frame.label) + dimText(" entry " + chunk.entry.name + ", exit "
-                                                                 + chunk.exit.name));
-        for (const ImcStmtPtr &s : chunk.stmts)
-            print("  " + s->toString());
+    // Reads like assembly: labels flush left with a colon, statements indented
+    // under them. The function label is where a CALL lands (the prologue goes
+    // there); the exit label is where the epilogue goes.
+    void ImcLin::printCode(const LinCodeChunk &chunk) const {
+        if (!m_print)
+            return;
+        const MemFrame &frame = *chunk.frame;
+        print("");
+        print(Utils::Font::colorYellow + frame.label + ":" + Utils::Font::colorReset
+              + dimText("    # prologue -- " + frame.toString()));
+        for (const ImcStmtPtr &s : chunk.stmts) {
+            if (const auto *label = dynamic_cast<const ImcLABEL *>(s.get()))
+                print(label->label.name + ":");
+            else
+                print("    " + s->toString());
+        }
+        print(chunk.exit.name + ":" + dimText("    # epilogue"));
     }
 
     std::vector<ImcStmtPtr> ImcLin::linearize(std::vector<ImcStmtPtr> stmts) {

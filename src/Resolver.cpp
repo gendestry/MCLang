@@ -58,9 +58,21 @@ namespace Basic {
         m_scopes.pop_back();
     }
 
+    const Resolver::VarRef *Resolver::declOf(const NamedExpr *use) const {
+        auto it = m_names.find(use);
+        return it == m_names.end() ? nullptr : &it->second;
+    }
+
+    const FunDecl *Resolver::declOf(const CallExpr *call) const {
+        auto it = m_calls.find(call);
+        return it == m_calls.end() ? nullptr : it->second;
+    }
+
     bool Resolver::resolve(const Program &program) {
         m_errors.clear();
         m_scopes.clear();
+        m_names.clear();
+        m_calls.clear();
         pushScope("global");
 
         for (const DeclPtr &d : program)
@@ -71,21 +83,21 @@ namespace Basic {
     }
 
     // Shadowing an outer scope is fine; colliding within one scope is not.
-    void Resolver::declare(const std::string &name, Kind kind) {
+    void Resolver::declare(const std::string &name, Entry entry) {
         Scope &scope = m_scopes.back();
-        auto [it, inserted] = scope.emplace(name, kind);
+        auto [it, inserted] = scope.emplace(name, entry);
         if (!inserted) {
-            print(badText("declare ") + kindText(kindName(kind)) + " " + nameText(name) + " "
+            print(badText("declare ") + kindText(kindName(entry.kind)) + " " + nameText(name) + " "
                   + badText("REDEFINITION"));
             error("redefinition of '" + name + "' (already declared as a "
-                  + kindName(it->second) + " in this scope)");
+                  + kindName(it->second.kind) + " in this scope)");
             return;
         }
-        print(okText("declare ") + kindText(kindName(kind)) + " " + nameText(name)
+        print(okText("declare ") + kindText(kindName(entry.kind)) + " " + nameText(name)
               + dimText(" @ depth " + std::to_string(m_scopes.size() - 1)));
     }
 
-    const Resolver::Kind *Resolver::lookup(const std::string &name, std::size_t *depth) const {
+    const Resolver::Entry *Resolver::lookup(const std::string &name, std::size_t *depth) const {
         for (auto scope = m_scopes.rbegin(); scope != m_scopes.rend(); ++scope) {
             auto it = scope->find(name);
             if (it != scope->end()) {
@@ -97,23 +109,24 @@ namespace Basic {
         return nullptr;
     }
 
-    void Resolver::use(const std::string &name, Kind expected, const char *what) {
+    const Resolver::Entry *Resolver::use(const std::string &name, Kind expected, const char *what) {
         std::size_t depth = 0;
-        const Kind *kind = lookup(name, &depth);
+        const Entry *entry = lookup(name, &depth);
         const std::string head =
             "resolve " + kindText(what) + " " + nameText(name) + dimText(" -> ");
 
-        if (!kind) {
+        if (!entry) {
             print(head + badText("UNDECLARED"));
             error("use of undeclared " + std::string(what) + " '" + name + "'");
-            return;
+            return nullptr;
         }
-        if (*kind != expected) {
-            print(head + badText(std::string("found a ") + kindName(*kind)));
-            error("'" + name + "' is a " + kindName(*kind) + ", not a " + what);
-            return;
+        if (entry->kind != expected) {
+            print(head + badText(std::string("found a ") + kindName(entry->kind)));
+            error("'" + name + "' is a " + kindName(entry->kind) + ", not a " + what);
+            return nullptr;
         }
         print(head + okText("ok") + dimText(" @ depth " + std::to_string(depth)));
+        return entry;
     }
 
     // ---- Type ----------------------------------------------------------------
@@ -123,6 +136,7 @@ namespace Basic {
     void Resolver::visit(NamedType &t) { use(t.name, Kind::Record, "record type"); }
 
     void Resolver::visit(ArrayType &t) { walk(t.elem); }
+    void Resolver::visit(RefType &t) { walk(t.elem); }
 
     // ---- Expr ----------------------------------------------------------------
 
@@ -138,12 +152,16 @@ namespace Basic {
     void Resolver::visit(UnaryExpr &e) { walk(e.operand); }
 
     void Resolver::visit(CallExpr &e) {
-        use(e.callee, Kind::Fun, "function");
+        if (const Entry *fun = use(e.callee, Kind::Fun, "function"))
+            m_calls[&e] = fun->fun;
         for (const ExprPtr &a : e.args)
             walk(a);
     }
 
-    void Resolver::visit(NamedExpr &e) { use(e.callee, Kind::Var, "variable"); }
+    void Resolver::visit(NamedExpr &e) {
+        if (const Entry *var = use(e.callee, Kind::Var, "variable"))
+            m_names[&e] = {var->var, var->param};
+    }
 
     // Only the base is a name; the member is a field of whatever record the base
     // turns out to be, which needs types to check.
@@ -153,6 +171,8 @@ namespace Basic {
         walk(e.base);
         walk(e.index);
     }
+
+    void Resolver::visit(RefExpr &e) { walk(e.operand); }
 
     // ---- Stmt ----------------------------------------------------------------
 
@@ -201,18 +221,18 @@ namespace Basic {
     void Resolver::visit(VarDecl &d) {
         walk(d.type);
         walk(d.init);
-        declare(d.name, Kind::Var);
+        declare(d.name, {Kind::Var, &d});
     }
 
     void Resolver::visit(FunDecl &d) {
         print(dimText("function ") + nameText(d.name));
-        declare(d.name, Kind::Fun); // declared before the body, so recursion resolves
+        declare(d.name, {Kind::Fun, nullptr, nullptr, &d}); // before the body, so recursion resolves
         walk(d.returnType);
 
         pushScope("function");
         for (Param &p : d.params) {
             walk(p.type);
-            declare(p.name, Kind::Var);
+            declare(p.name, {Kind::Var, nullptr, &p});
         }
 
         // Walk the body's statements directly in the parameter scope rather than
@@ -229,7 +249,7 @@ namespace Basic {
 
     void Resolver::visit(RecordDecl &d) {
         print(dimText("record ") + nameText(d.name));
-        declare(d.name, Kind::Record); // before the fields, so a record may name itself
+        declare(d.name, {Kind::Record}); // before the fields, so a record may name itself
 
         // Field names live in the record, not in the enclosing scope, so they are
         // checked against each other rather than declared into a Scope.
@@ -241,7 +261,7 @@ namespace Basic {
 
             walk(field->type);
             walk(field->init);
-            if (!fields.emplace(field->name, Kind::Var).second)
+            if (!fields.emplace(field->name, Entry{Kind::Var}).second)
                 error("duplicate field '" + field->name + "' in record '" + d.name + "'");
         }
     }

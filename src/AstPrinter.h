@@ -41,6 +41,12 @@ namespace Basic {
             m_row = std::move(r);
         }
 
+        void visit(RefType &t) override {
+            Row r{label("RefType"), {}};
+            add(r, t.elem);
+            m_row = std::move(r);
+        }
+
         // ---- Expr ----
         void visit(NumberExpr &e) override { m_row = {label("NumberExpr", trim(e.value)), {}}; }
         void visit(BoolExpr &e) override { m_row = {label("BoolExpr", e.value ? "true" : "false"), {}}; }
@@ -78,6 +84,12 @@ namespace Basic {
             Row r{label("IndexExpr"), {}};
             group(r, "base", e.base);
             group(r, "index", e.index);
+            m_row = std::move(r);
+        }
+
+        void visit(RefExpr &e) override {
+            Row r{label("RefExpr"), {}};
+            add(r, e.operand);
             m_row = std::move(r);
         }
 

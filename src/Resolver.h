@@ -40,10 +40,22 @@ namespace Basic {
         void setPrint(bool on) { m_print = on; }
         bool printing() const { return m_print; }
 
+        // ---- results ----
+        // What each use of a name resolved to, for the phases that need to find
+        // the declaration again. A variable is a VarDecl or a function parameter:
+        // exactly one of the two is set. Null when the use did not resolve.
+        struct VarRef {
+            const VarDecl *var = nullptr;
+            const Param *param = nullptr;
+        };
+        const VarRef *declOf(const NamedExpr *use) const;
+        const FunDecl *declOf(const CallExpr *call) const;
+
         // ---- Type ----
         void visit(AtomicType &t) override;
         void visit(NamedType &t) override;
         void visit(ArrayType &t) override;
+        void visit(RefType &t) override;
 
         // ---- Expr ----
         void visit(NumberExpr &e) override;
@@ -55,6 +67,7 @@ namespace Basic {
         void visit(NamedExpr &e) override;
         void visit(AccessExpr &e) override;
         void visit(IndexExpr &e) override;
+        void visit(RefExpr &e) override;
 
         // ---- Stmt ----
         void visit(CompoundStmt &s) override;
@@ -78,13 +91,23 @@ namespace Basic {
         enum class Kind { Var, Fun, Record };
         static const char *kindName(Kind kind);
 
-        using Scope = std::unordered_map<std::string, Kind>;
+        // A declared name: its kind, plus the declaration itself for the kinds a
+        // later phase needs to find again (at most one of var / param / fun).
+        struct Entry {
+            Kind kind;
+            const VarDecl *var = nullptr;
+            const Param *param = nullptr;
+            const FunDecl *fun = nullptr;
+        };
 
-        void declare(const std::string &name, Kind kind);
+        using Scope = std::unordered_map<std::string, Entry>;
+
+        void declare(const std::string &name, Entry entry);
         // Innermost scope outwards. On a hit, *depth (when given) receives the
         // 0-based index of the scope the name was found in -- 0 is global.
-        const Kind *lookup(const std::string &name, std::size_t *depth = nullptr) const;
-        void use(const std::string &name, Kind expected, const char *what);
+        const Entry *lookup(const std::string &name, std::size_t *depth = nullptr) const;
+        // The entry when `name` is a `expected`; null, after reporting why, otherwise.
+        const Entry *use(const std::string &name, Kind expected, const char *what);
         void error(std::string message) { m_errors.push_back(std::move(message)); }
 
         void pushScope(const char *what);
@@ -106,6 +129,8 @@ namespace Basic {
         }
 
         std::vector<Scope> m_scopes; // back() is the innermost
+        std::unordered_map<const NamedExpr *, VarRef> m_names;
+        std::unordered_map<const CallExpr *, const FunDecl *> m_calls;
         std::vector<std::string> m_errors;
         bool m_print = false;
     };
