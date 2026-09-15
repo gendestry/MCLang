@@ -10,6 +10,7 @@
 #include "ImcGen/ImcGen.h"
 #include "ImcLin/ImcLin.h"
 #include "ImcLin/Interpreter.h"
+#include "McGen/McGen.h"
 
 #include "Syntax/Engine.h"
 #include "Syntax/GrammarParser.h"
@@ -133,5 +134,17 @@ int main(int argc, char** argv) {
         logger.error("Runtime error: {}", e.what());
         return 1;
     }
+
+    // 10. Generate the Minecraft datapack from the linearized code.
+    Basic::McGen mcGen(imcLin);
+    mcGen.setPrint(printNames); // --print lists every function written
+    if (!mcGen.generate("datapack")) {
+        for (const std::string &e : mcGen.errors())
+            logger.error("{}", e);
+        logger.error("Datapack generation failed with {} error(s)", mcGen.errors().size());
+        return 1;
+    }
+
+    logger.info("Datapack written to datapack/");
     return 0;
 }
