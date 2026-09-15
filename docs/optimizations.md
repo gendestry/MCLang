@@ -25,7 +25,7 @@ command count of the generated datapack.
 | # | Optimization | Where | Status |
 |---|--------------|-------|--------|
 | 1 | Constant folding and algebraic simplification | tree, before ImcLin | **done** (`ConstantFolder`) |
-| 2 | Peephole rules in McGen | inside McGen | planned |
+| 2 | Peephole rules in McGen | inside McGen | **done** (`McPeephole`) |
 | 3 | Saving only the temps needed after a call (liveness analysis) | linear | planned |
 | 4 | Copy propagation and dead code elimination | linear | planned |
 | 5 | Jump threading and block merging | linear | planned |
@@ -188,16 +188,97 @@ Add a `case` in `visit(ImcBINOP&)` after step 4, and apply it with `replace(...)
 
 ---
 
-## 2. Peephole rules in McGen — planned
+## 2. Peephole rules in McGen (`McPeephole`) — done
 
-Local rewrites while emitting commands:
+Files: `src/McGen/McPeephole.h`, `src/McGen/McPeephole.cpp`. McGen runs it over
+every block once the block is generated, when `McGen::setOptimize(true)` is set
+(`main.cpp` passes `optimize`). The prologue and epilogue file isn't touched.
 
-- Put constants straight into `scoreboard players add` / `remove` instead of
-  loading them into a scratch score first. Today `$e1 = $FP + 8000` takes
-  3 commands (`set $e0 8000`, `$e1 = $FP`, `$e1 += $e0`) where 2 would do.
-- Don't make scratch copies of temps that are only read.
+It works on the command text, not the IMC. McGen puts every value in a scratch
+holder (`$e0`, `$e1`, ...) first, so many commands only shuffle values between
+holders; the pass removes them.
 
-Probably the biggest single win for the least work.
+### Results
+
+Checked with a small simulator for the emitted command subset: every program
+returns the same value with `optimize` on and off (the constant folder and the
+peephole pass together).
+
+| Program | Commands, off | Commands, on | Executed, off | Executed, on |
+|---------|---------------|--------------|---------------|--------------|
+| `src/input.txt` (records, calls) | 374 | 273 | 496 | 383 |
+| constants / `if` | 220 | 113 | 274 | 150 |
+| loop, recursion, `*` `/`, comparisons | 456 | 377 | 2442 | 2013 |
+
+Command counts are for the whole datapack, including the runtime files. Loading a
+value from memory is what makes up most of the rest.
+
+### Before and after
+
+```mcfunction
+# MOVE(TEMP(T2), MEM8(ADD(TEMP(FP), CONST(8))))       -- before: 9 commands
+scoreboard players set $e0 mcl 8000
+scoreboard players operation $e1 mcl = $FP mcl
+scoreboard players operation $e1 mcl += $e0 mcl
+scoreboard players operation $slot mcl = $e1 mcl
+scoreboard players operation $slot mcl /= #slot mcl
+execute store result storage mcl:args slot int 1 run scoreboard players get $slot mcl
+function mcl:rt/load with storage mcl:args
+scoreboard players operation $e2 mcl = $mem mcl
+scoreboard players operation $T2 mcl = $e2 mcl
+
+# after: 6 commands
+scoreboard players operation $slot mcl = $FP mcl
+scoreboard players add $slot mcl 8000
+scoreboard players operation $slot mcl /= #slot mcl
+execute store result storage mcl:args slot int 1 run scoreboard players get $slot mcl
+function mcl:rt/load with storage mcl:args
+scoreboard players operation $T2 mcl = $mem mcl
+```
+
+### Rules
+
+Applied until none matches. After each rewrite the scan starts again from the top
+of the block.
+
+1. **Constant into add / remove** (`foldConstant`): `set X c`, then the one line
+   that reads X, `D += X` or `D -= X` → `add D c` / `remove D c`. A negative amount
+   flips `add` and `remove`, since `add` only takes a non-negative number.
+2. **Constant comparison** (also `foldConstant`): `set X c`, then
+   `execute if|unless score A OP X run ...` → `execute if|unless score A matches R run ...`,
+   where `<` gives `..c-1`, `<=` gives `..c`, `=` gives `c`, `>=` gives `c..` and
+   `>` gives `c+1..`.
+3. **Compute in place** (`coalesce`): at `Y = X`, where X is a scratch that's dead
+   afterwards, walk back to the line that defines X, rename X to Y in every line
+   from there on, and delete the copy.
+   `$e0 = $T2; $e0 += $T3; $RV = $e0` → `$RV = $T2; $RV += $T3`.
+4. **No-ops** (`noOp`): `add X 0`, `remove X 0` and `X = X` are deleted. Rule 3
+   often leaves these behind.
+
+### Why it's safe
+
+- **Only scratch holders (`$eN`) are removed or renamed away.** McGen defines one
+  afresh in every statement that uses it (`m_scratch` resets per statement), so
+  a scratch is **dead** once its next mention in the block is a line that sets it
+  without reading it (`defines`), or the block ends. Other blocks never read it.
+- **A holder is recognized as a `<name> mcl` token pair,** so comments and JSON
+  text never match.
+- **No rewrite reaches across a `function` line.** A called MCLang function
+  clobbers every scratch, and `rt/load` / `rt/store` read `$slot` and `$mem`
+  without naming them.
+- **Rule 3 moves a write to Y earlier,** so it gives up when:
+  - Y is mentioned anywhere between X's definition and the copy, since those
+    lines would see the new value
+  - there's a `return` in between, since the block being returned into could read
+    Y early
+- **Amounts and ranges that would leave the 32-bit int range are left alone.**
+
+### Adding a rule
+
+Write a `bool rule(std::vector<std::string> &lines, std::size_t i)` that rewrites
+around line `i` and returns whether it did, and call it from the loop in
+`McPeephole::run`. Use `split`/`join`, `mentions`, `defines` and `dead`, and follow
+the safety rules above.
 
 ## 3. Save only needed temps (liveness analysis) — planned
 

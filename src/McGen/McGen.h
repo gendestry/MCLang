@@ -55,6 +55,9 @@ namespace Basic {
         void setPrint(bool on) { m_print = on; }
         bool printing() const { return m_print; }
 
+        // Run the peephole rules (McPeephole) over every generated block.
+        void setOptimize(bool on) { m_optimize = on; }
+
         // ---- expressions: each leaves the holder with its value in m_holder ----
         void visit(ImcCONST &e) override;
         void visit(ImcNAME &e) override;
@@ -127,5 +130,7 @@ namespace Basic {
 
         std::vector<std::string> m_errors;
         bool m_print = false;
+        bool m_optimize = false;
+        std::size_t m_peephole = 0; // rewrites made, for print mode
     };
 }

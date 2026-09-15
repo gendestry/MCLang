@@ -27,6 +27,7 @@
 #include "ImcGen/data/stmt/ImcMOVE.h"
 #include "ImcGen/data/stmt/ImcSTMTS.h"
 #include "ImcLin/ImcLin.h"
+#include "McGen/McPeephole.h"
 #include "Utils/Colors/Font.h"
 
 namespace Basic {
@@ -65,6 +66,7 @@ namespace Basic {
         m_errors.clear();
         m_files.clear();
         m_data.clear();
+        m_peephole = 0;
 
         // Globals sit back to back from DATA_START, each a whole number of slots.
         long long next = DATA_START;
@@ -110,7 +112,8 @@ namespace Basic {
         }
         if (m_print)
             std::cout << "  " << dimText(std::to_string(m_files.size()) + " functions, "
-                                         + std::to_string(commands) + " commands") << std::endl;
+                                         + std::to_string(commands) + " commands, "
+                                         + std::to_string(m_peephole) + " peephole rewrites") << std::endl;
         return true;
     }
 
@@ -220,8 +223,11 @@ namespace Basic {
 
         const std::string prefix = "mcl:";
         m_files[functionName(m_function).substr(prefix.size())] = std::move(entry);
-        for (Block &block : m_blocks)
+        for (Block &block : m_blocks) {
+            if (m_optimize)
+                m_peephole += McPeephole::run(block.lines);
             m_files[blockName(block.label).substr(prefix.size())] = std::move(block.lines);
+        }
     }
 
     // ---- naming --------------------------------------------------------------

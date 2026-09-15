@@ -150,6 +150,7 @@ int main(int argc, char** argv) {
     // 10. Generate the Minecraft datapack from the linearized code.
     Basic::McGen mcGen(imcLin);
     mcGen.setPrint(printNames); // --print lists every function written
+    mcGen.setOptimize(optimize);
     if (!mcGen.generate("datapack")) {
         for (const std::string &e : mcGen.errors())
             logger.error("{}", e);
