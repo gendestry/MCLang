@@ -28,6 +28,7 @@
 #include "ImcGen/data/stmt/ImcSTMTS.h"
 #include "ImcLin/ImcLin.h"
 #include "McGen/McPeephole.h"
+#include "ImcOpt/Liveness.h"
 #include "Utils/Colors/Font.h"
 
 namespace Basic {
@@ -67,6 +68,8 @@ namespace Basic {
         m_files.clear();
         m_data.clear();
         m_peephole = 0;
+        m_saves = 0;
+        m_clobbers.clear();
 
         // Globals sit back to back from DATA_START, each a whole number of slots.
         long long next = DATA_START;
@@ -76,6 +79,9 @@ namespace Basic {
             m_data[data.label.name] = next;
             next += static_cast<long long>((data.size + SLOT_SIZE - 1) / SLOT_SIZE * SLOT_SIZE);
         }
+
+        if (m_optimize)
+            computeClobbers();
 
         bool hasMain = false;
         for (const LinCodeChunk &chunk : m_lin.codeChunks()) {
@@ -113,7 +119,8 @@ namespace Basic {
         if (m_print)
             std::cout << "  " << dimText(std::to_string(m_files.size()) + " functions, "
                                          + std::to_string(commands) + " commands, "
-                                         + std::to_string(m_peephole) + " peephole rewrites") << std::endl;
+                                         + std::to_string(m_peephole) + " peephole rewrites, "
+                                         + std::to_string(m_saves) + " temp saves at calls") << std::endl;
         return true;
     }
 
@@ -178,15 +185,21 @@ namespace Basic {
         m_blocks.clear();
         m_terminated = true;
 
-        // Every temp this function writes has to survive a recursive call to it.
+        // Unoptimized, the callee keeps every temp it writes, so a recursive call
+        // can't disturb its caller. Optimized, the caller keeps only the temps
+        // still live after each call that the callee can overwrite.
         std::set<std::size_t> temps;
-        for (const ImcStmtPtr &s : chunk.stmts)
-            if (const auto *move = dynamic_cast<const ImcMOVE *>(s.get()))
-                if (const auto *temp = dynamic_cast<const ImcTEMP *>(move->dst.get()))
-                    if (temp->temp.id > ImcTemp::RV().id)
-                        temps.insert(temp->temp.id);
+        std::vector<Liveness::Temps> liveOut;
+        if (m_optimize) {
+            liveOut = Liveness::liveOut(chunk);
+        } else {
+            for (const ImcStmtPtr &s : chunk.stmts)
+                for (std::size_t id : Liveness::defs(*s))
+                    temps.insert(id);
+        }
 
-        for (const ImcStmtPtr &s : chunk.stmts) {
+        for (std::size_t i = 0; i < chunk.stmts.size(); ++i) {
+            const ImcStmtPtr &s = chunk.stmts[i];
             if (const auto *label = dynamic_cast<const ImcLABEL *>(s.get())) {
                 if (!m_blocks.empty() && !m_terminated)
                     emit("return run function " + blockName(label->label.name)); // fall through
@@ -199,7 +212,15 @@ namespace Basic {
 
             m_scratch = 0;
             emit("# " + s->toString());
+            const std::vector<std::size_t> saves = m_optimize ? callSaves(*s, liveOut[i]) : std::vector<std::size_t>{};
+            for (std::size_t id : saves)
+                for (std::string &line : saveLines("$" + ImcTemp(id).toString()))
+                    emit(std::move(line));
             s->accept(*this);
+            for (auto id = saves.rbegin(); id != saves.rend(); ++id)
+                for (std::string &line : restoreLines("$" + ImcTemp(*id).toString()))
+                    emit(std::move(line));
+            m_saves += saves.size();
         }
         if (!m_blocks.empty() && !m_terminated)
             emit("return 1");
@@ -207,7 +228,7 @@ namespace Basic {
         const long long size = static_cast<long long>(frame.size()) * SCALE;
         std::vector<std::string> entry = {
             "# " + frame.toString(),
-            "# prologue: keep the caller's FP and every temp this function writes",
+            m_optimize ? "# prologue: keep the caller's FP" : "# prologue: keep the caller's FP and every temp this function writes",
         };
         append(entry, saveLines("$FP"));
         for (std::size_t id : temps)
@@ -228,6 +249,49 @@ namespace Basic {
                 m_peephole += McPeephole::run(block.lines);
             m_files[blockName(block.label).substr(prefix.size())] = std::move(block.lines);
         }
+    }
+
+    void McGen::computeClobbers() {
+        std::unordered_map<std::string, std::set<std::string>> callees;
+        for (const LinCodeChunk &chunk : m_lin.codeChunks()) {
+            std::set<std::size_t> &writes = m_clobbers[chunk.frame->label];
+            for (const ImcStmtPtr &s : chunk.stmts) {
+                for (std::size_t id : Liveness::defs(*s))
+                    writes.insert(id);
+                if (const ImcCALL *call = Liveness::callIn(*s))
+                    callees[chunk.frame->label].insert(call->label.name);
+            }
+        }
+
+        // Grow each set by its callees' until nothing changes; recursion is fine.
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (auto &[function, clobbers] : m_clobbers) {
+                for (const std::string &callee : callees[function]) {
+                    auto it = m_clobbers.find(callee);
+                    if (it == m_clobbers.end() || &it->second == &clobbers)
+                        continue;
+                    const std::size_t before = clobbers.size();
+                    clobbers.insert(it->second.begin(), it->second.end());
+                    changed = changed || clobbers.size() != before;
+                }
+            }
+        }
+    }
+
+    std::vector<std::size_t> McGen::callSaves(const ImcStmt &stmt, const std::set<std::size_t> &liveOut) const {
+        const ImcCALL *call = Liveness::callIn(stmt);
+        if (!call)
+            return {};
+        const Liveness::Temps result = Liveness::defs(stmt); // written after the call; restoring would undo it
+        const auto it = m_clobbers.find(call->label.name);
+
+        std::vector<std::size_t> out;
+        for (std::size_t id : liveOut)
+            if (!result.contains(id) && (it == m_clobbers.end() || it->second.contains(id)))
+                out.push_back(id); // a function we don't know might write anything
+        return out;
     }
 
     // ---- naming --------------------------------------------------------------

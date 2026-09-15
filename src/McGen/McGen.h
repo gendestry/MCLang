@@ -29,6 +29,7 @@
 #pragma once
 #include <cstddef>
 #include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -55,7 +56,8 @@ namespace Basic {
         void setPrint(bool on) { m_print = on; }
         bool printing() const { return m_print; }
 
-        // Run the peephole rules (McPeephole) over every generated block.
+        // Optimize: run the peephole rules (McPeephole) over every generated block,
+        // and save only the temps still live across a call (see genChunk).
         void setOptimize(bool on) { m_optimize = on; }
 
         // ---- expressions: each leaves the holder with its value in m_holder ----
@@ -88,6 +90,11 @@ namespace Basic {
 
         // ---- per function ----
         void genChunk(const LinCodeChunk &chunk);
+        // Every temp a call to each function can overwrite: its own writes and
+        // those of every function it reaches through calls.
+        void computeClobbers();
+        // The temps to save around statement `stmt` when it makes a call.
+        std::vector<std::size_t> callSaves(const ImcStmt &stmt, const std::set<std::size_t> &liveOut) const;
 
         // ---- naming ----
         static std::string functionName(const std::string &function); // mcl:fn/<name>
@@ -132,5 +139,7 @@ namespace Basic {
         bool m_print = false;
         bool m_optimize = false;
         std::size_t m_peephole = 0; // rewrites made, for print mode
+        std::size_t m_saves = 0;    // temps saved at call sites, for print mode
+        std::unordered_map<std::string, std::set<std::size_t>> m_clobbers; // function -> temp ids
     };
 }

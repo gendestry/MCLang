@@ -26,7 +26,7 @@ command count of the generated datapack.
 |---|--------------|-------|--------|
 | 1 | Constant folding and algebraic simplification | tree, before ImcLin | **done** (`ConstantFolder`) |
 | 2 | Peephole rules in McGen | inside McGen | **done** (`McPeephole`) |
-| 3 | Saving only the temps needed after a call (liveness analysis) | linear | planned |
+| 3 | Saving only the temps needed after a call (liveness analysis) | linear, used by McGen | **done** (`Liveness`) |
 | 4 | Copy propagation and dead code elimination | linear | planned |
 | 5 | Jump threading and block merging | linear | planned |
 | 6 | Common subexpression elimination | linear | planned |
@@ -280,13 +280,89 @@ around line `i` and returns whether it did, and call it from the loop in
 `McPeephole::run`. Use `split`/`join`, `mentions`, `defines` and `dead`, and follow
 the safety rules above.
 
-## 3. Save only needed temps (liveness analysis) — planned
+## 3. Save only needed temps (`Liveness`) — done
 
-`add` currently saves `$T6`, `$T7` and `$T8` on every call. A **liveness
-analysis** over the linearized code finds which temps are still read after each
-call; only those need saving. That is often none, saving about 8 commands per
-temp per call. This is the first real dataflow analysis, and passes 4 and 6
-build on it.
+Files: `src/ImcOpt/Liveness.h`, `src/ImcOpt/Liveness.cpp` (the analysis), and
+`McGen::computeClobbers`, `McGen::callSaves` and `McGen::genChunk` (how it's used).
+It's switched by the same `McGen::setOptimize`.
+
+### The problem
+
+Scoreboards are global, so a call can overwrite any temp its caller still needs.
+Unoptimized, every function's **prologue** saves the caller's FP **and every temp
+the function writes**, and the epilogue restores them all: 4 commands per temp,
+on every call, whether or not the caller needs them. `add` saved three temps on
+every call even though `main` read none of them afterwards.
+
+### The fix: caller-saves, driven by liveness
+
+The **caller** saves a temp around a call only when both are true:
+
+1. **It is live after the call:** it may still be read later. That's what the
+   liveness analysis gives.
+2. **The callee can overwrite it.** Temp ids are unique across the whole program
+   (`ImcTemp::fresh`), so a callee can only write its own temps and those of the
+   functions it reaches. `computeClobbers` builds that set for every function as
+   a fixpoint over the call graph, which also handles recursion. A call to a
+   function it doesn't know is treated as overwriting everything.
+
+`save = liveOut(call) ∩ clobbers(callee) − {the call's result temp}`
+
+The result temp is excluded because the statement writes it after the call, and
+restoring it would undo that. The prologue now only saves FP.
+
+A non-recursive call usually saves nothing. In `fib`, only the first call's result
+is saved, around the second call:
+
+```mcfunction
+# MOVE(TEMP(T10), CALL(fib, @0:TEMP(T7), @8:TEMP(T9)))
+execute store result storage mcl:mem tmp int 1 run scoreboard players get $T6 mcl
+data modify storage mcl:mem saved append from storage mcl:mem tmp
+...                                   # arguments, function mcl:fn/fib
+scoreboard players operation $T10 mcl = $RV mcl
+execute store result score $T6 mcl run data get storage mcl:mem saved[-1]
+data remove storage mcl:mem saved[-1]
+# MOVE(TEMP(RV), ADD(TEMP(T6), TEMP(T10)))
+```
+
+### The liveness analysis
+
+The classic backward dataflow over one `LinCodeChunk`:
+
+```
+out[s] = ∪ in[t]   for every successor t of s
+in[s]  = uses[s] ∪ (out[s] − defs[s])
+```
+
+- **Successors:** a `JUMP` goes to its label's index, a `CJUMP` to both labels,
+  and anything else to the next statement. A jump to the exit label, or off the
+  end, has none.
+- **`uses`:** every temp in the statement's expressions. A `MOVE` into a `TEMP`
+  doesn't read it, but a `MOVE` into a `MEM` reads its address.
+- **`defs`:** the temp a `MOVE` writes.
+- **Iteration:** it sweeps backwards, since facts flow that way, and repeats until
+  no set changes.
+- **FP and RV aren't tracked.** FP is saved by the prologue, and RV is copied out
+  right after every call.
+
+`Liveness::callIn` finds the call a statement makes. In linearized code that's
+only `MOVE(TEMP, CALL)` or `ESTMT(CALL)`.
+
+Passes 4 (dead code elimination) and 6 can reuse `Liveness`.
+
+### Results
+
+All three passes together, checked in the simulator. Every program returns the
+same value with `optimize` on and off.
+
+| Program | Commands, off → on | Executed, off → on | Saves at calls |
+|---------|--------------------|--------------------|----------------|
+| `src/input.txt` | 374 → 217 | 496 → 299 | 0 |
+| constants / `if` | 220 → 81 | 274 → 102 | 0 |
+| loop, recursion (`fact`) | 456 → 261 | 2442 → 1713 | 1 |
+| `fib` + helper in a loop | 462 → 274 | 16159 → 8914 | 1 |
+
+The recursive `fib` shows the biggest runtime win: it executes 45% fewer commands.
 
 ## 4. Copy propagation and dead code elimination — planned
 
