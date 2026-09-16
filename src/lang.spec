@@ -7,7 +7,7 @@ category Type {
     AtomicType { string prim }        # "float" | "bool" | "void"
     NamedType  { string name }        # namedtype : a record name
     ArrayType  { Type elem; u64 length }   # type[N] (outermost length first)
-    RefType    { Type elem }               # &type -- parameters only
+    PointerType { Type elem }              # type* (address of an elem)
 }
 
 record Param {
@@ -25,7 +25,8 @@ category Expr {
     NamedExpr   { string callee; Expr[] args }      # funcall
     AccessExpr { Expr base; string member }        # accessexpr : p.x (left-folded)
     IndexExpr  { Expr base; Expr index }           # accessexpr : a[i] (left-folded)
-    RefExpr    { Expr operand }                    # arg : &x -- call arguments only
+    AddressExpr { Expr operand }                   # unaryexpr : &x -- where x lives
+    DerefExpr  { Expr operand }                    # unaryexpr : *p -- what p points at
     UnaryExpr  { string op; Expr operand }         # unaryexpr : !x
 }
 

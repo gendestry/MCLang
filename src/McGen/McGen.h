@@ -87,6 +87,7 @@ namespace Basic {
 
     private:
         static constexpr long long SCALE = 1000;
+        static constexpr std::size_t COMMAND_LIMIT = 65536; // maxCommandChainLength's default
         static constexpr long long DATA_START = 64;      // bytes
         static constexpr long long STACK_TOP = 800000;   // bytes; x SCALE still fits in an int
 
@@ -128,6 +129,9 @@ namespace Basic {
 
         // ---- output ----
         void addRuntime(bool hasMain, bool hasTick);
+        // Raises Minecraft's command limit in `load` when the program may need it.
+        void raiseCommandLimit();
+        bool mayRunLong() const; // a loop, or recursion
         // mcl:<function> for every top-level function taking only numbers.
         void addEntries();
         // Fresh memory and stack, before an entry point calls in.

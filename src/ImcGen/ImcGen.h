@@ -81,7 +81,8 @@ namespace Basic {
         void visit(NamedExpr &e) override;
         void visit(AccessExpr &e) override;
         void visit(IndexExpr &e) override;
-        void visit(RefExpr &e) override;
+        void visit(AddressExpr &e) override;
+        void visit(DerefExpr &e) override;
 
         // ---- Stmt ----
         void visit(CompoundStmt &s) override;

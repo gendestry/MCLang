@@ -135,7 +135,7 @@ namespace Basic {
         }
         if (const auto *array = dynamic_cast<const ArrayType *>(type))
             return array->length * sizeOf(array->elem.get());
-        return SLOT_SIZE; // float, bool, and a reference (an address)
+        return SLOT_SIZE; // float, bool, and a pointer (an address)
     }
 
     const Type *ImcGen::fieldType(const std::string &record, const std::string &field) const {
@@ -261,12 +261,6 @@ namespace Basic {
         ImcExprPtr addr = addressOf(*access);
         const Type *type = ref->var ? ref->var->type.get() : ref->param->type.get();
 
-        // The slot of a `&T` parameter holds the address of the T.
-        if (const auto *refType = dynamic_cast<const RefType *>(type)) {
-            addr = std::make_unique<ImcMEM>(std::move(addr));
-            type = refType->elem.get();
-        }
-
         m_expr = std::make_unique<ImcMEM>(std::move(addr), sizeOf(type));
         m_type = type;
     }
@@ -287,26 +281,48 @@ namespace Basic {
         m_type = type;
     }
 
+    // a[i] is MEM(address of a + i * size); p[i] is MEM(p + i * size) -- the
+    // pointer's value already is the address the elements start at.
     void ImcGen::visit(IndexExpr &e) {
         ImcExprPtr base = gen(e.base);
         const auto *array = dynamic_cast<const ArrayType *>(m_type);
+        const auto *pointer = dynamic_cast<const PointerType *>(m_type);
         ImcExprPtr index = gen(e.index);
-        if (!array) {
-            m_expr = failed("ImcGen: indexing something that is not an array");
+        if (!array && !pointer) {
+            m_expr = failed("ImcGen: indexing something that is neither an array nor a pointer");
             return;
         }
 
-        const std::size_t size = sizeOf(array->elem.get());
+        const Type *elem = array ? array->elem.get() : pointer->elem.get();
+        const std::size_t size = sizeOf(elem);
+        ImcExprPtr start = array ? addressOf(std::move(base)) : std::move(base);
         ImcExprPtr offset = std::make_unique<ImcBINOP>(ImcBINOP::Oper::MUL, std::move(index),
                                                        constant(static_cast<double>(size)));
-        m_expr = std::make_unique<ImcMEM>(plus(addressOf(std::move(base)), std::move(offset)), size);
-        m_type = array->elem.get();
+        m_expr = std::make_unique<ImcMEM>(plus(std::move(start), std::move(offset)), size);
+        m_type = elem;
     }
 
-    // Only ever a call argument: pass where the operand lives, not what it holds.
-    void ImcGen::visit(RefExpr &e) {
+    // Where the operand lives, not what it holds. The result has no written type
+    // to point back to, so indexing or dereferencing it goes through a variable
+    // first -- except *&x, which is just x.
+    void ImcGen::visit(AddressExpr &e) {
         m_expr = addressOf(gen(e.operand));
         m_type = nullptr;
+    }
+
+    void ImcGen::visit(DerefExpr &e) {
+        if (auto *address = dynamic_cast<AddressExpr *>(e.operand.get())) {
+            m_expr = gen(address->operand);
+            return;
+        }
+        ImcExprPtr pointer = gen(e.operand);
+        const auto *type = dynamic_cast<const PointerType *>(m_type);
+        if (!type) {
+            m_expr = failed("ImcGen: dereferencing something that is not a pointer");
+            return;
+        }
+        m_expr = std::make_unique<ImcMEM>(std::move(pointer), sizeOf(type->elem.get()));
+        m_type = type->elem.get();
     }
 
     // ---- Stmt ----------------------------------------------------------------

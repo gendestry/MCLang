@@ -41,8 +41,8 @@ namespace Basic {
             m_row = std::move(r);
         }
 
-        void visit(RefType &t) override {
-            Row r{label("RefType"), {}};
+        void visit(PointerType &t) override {
+            Row r{label("PointerType"), {}};
             add(r, t.elem);
             m_row = std::move(r);
         }
@@ -87,8 +87,14 @@ namespace Basic {
             m_row = std::move(r);
         }
 
-        void visit(RefExpr &e) override {
-            Row r{label("RefExpr"), {}};
+        void visit(AddressExpr &e) override {
+            Row r{label("AddressExpr"), {}};
+            add(r, e.operand);
+            m_row = std::move(r);
+        }
+
+        void visit(DerefExpr &e) override {
+            Row r{label("DerefExpr"), {}};
             add(r, e.operand);
             m_row = std::move(r);
         }

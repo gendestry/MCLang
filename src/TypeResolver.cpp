@@ -45,7 +45,7 @@ namespace Basic {
                 lengths += "[" + std::to_string(t->length) + "]";
             return t->name() + lengths;
         }
-        case Kind::Ref: return "&" + elem->name();
+        case Kind::Pointer: return elem->name() + "*";
         case Kind::Error: return "<error>";
         }
         return "<error>";
@@ -56,7 +56,7 @@ namespace Basic {
             return true; // already reported; do not complain twice
         if (kind != other.kind)
             return false;
-        if (kind == Kind::Array || kind == Kind::Ref) // a Ref's length is always 0
+        if (kind == Kind::Array || kind == Kind::Pointer) // a Pointer's length is always 0
             return length == other.length && elem->accepts(*other.elem);
         return kind != Kind::Record || record == other.record;
     }
@@ -156,16 +156,15 @@ namespace Basic {
         return m_result;
     }
 
-    // Only a name, or a chain of field accesses and indexing off one, can be
-    // assigned to.
+    // Something that lives in memory: a name, what a pointer points at, and fields
+    // and elements of those. Indexing always is -- nothing that isn't in memory
+    // can be an array (a call can't return one), and p[i] is *(p + i).
     bool TypeResolver::isLValue(const Expr &e) {
         if (const auto *named = dynamic_cast<const NamedExpr *>(&e))
             return named->args.empty();
         if (const auto *access = dynamic_cast<const AccessExpr *>(&e))
             return access->base && isLValue(*access->base);
-        if (const auto *index = dynamic_cast<const IndexExpr *>(&e))
-            return index->base && isLValue(*index->base);
-        return false;
+        return dynamic_cast<const IndexExpr *>(&e) || dynamic_cast<const DerefExpr *>(&e);
     }
 
     // ---- Type ----------------------------------------------------------------
@@ -201,14 +200,14 @@ namespace Basic {
         m_result = elem.isError() ? makeError() : makeArray(elem, t.length);
     }
 
-    void TypeResolver::visit(RefType &t) {
+    void TypeResolver::visit(PointerType &t) {
         const Ty elem = typeOfType(t.elem);
         if (elem.is(Ty::Kind::Void)) {
-            error("cannot take void by reference");
+            error("a pointer cannot point to void");
             m_result = makeError();
             return;
         }
-        m_result = elem.isError() ? makeError() : makeRef(elem);
+        m_result = elem.isError() ? makeError() : makePointer(elem);
     }
 
     // ---- Expr ----------------------------------------------------------------
@@ -388,8 +387,8 @@ namespace Basic {
             m_result = makeError();
             return;
         }
-        if (!base.is(Ty::Kind::Array)) {
-            error("cannot index non-array type " + base.name());
+        if (!base.is(Ty::Kind::Array) && !base.is(Ty::Kind::Pointer)) {
+            error("cannot index type " + base.name() + ", which is neither an array nor a pointer");
             m_result = makeError();
             return;
         }
@@ -398,17 +397,31 @@ namespace Basic {
         print(dimText("index ") + typeText(base.name()) + dimText(" : ") + typeText(m_result.name()));
     }
 
-    // The grammar only allows `&` on a call argument, so this is always the
-    // address a `&T` parameter will hold -- and that has to be somewhere real.
-    void TypeResolver::visit(RefExpr &e) {
+    // &x: only something that lives in memory has an address.
+    void TypeResolver::visit(AddressExpr &e) {
         const Ty operand = typeOf(e.operand);
         if (e.operand && !isLValue(*e.operand)) {
-            error("only a variable, a field or an array element can be passed by reference");
+            error("can only take the address of a variable, a field, an element or *p");
             m_result = makeError();
             return;
         }
-        m_result = operand.isError() ? makeError() : makeRef(operand);
-        print(dimText("ref : ") + typeText(m_result.name()));
+        m_result = operand.isError() ? makeError() : makePointer(operand);
+        print(dimText("address : ") + typeText(m_result.name()));
+    }
+
+    void TypeResolver::visit(DerefExpr &e) {
+        const Ty operand = typeOf(e.operand);
+        if (operand.isError()) {
+            m_result = makeError();
+            return;
+        }
+        if (!operand.is(Ty::Kind::Pointer)) {
+            error("cannot dereference " + operand.name() + ", which is not a pointer");
+            m_result = makeError();
+            return;
+        }
+        m_result = *operand.elem;
+        print(dimText("deref : ") + typeText(m_result.name()));
     }
 
     // ---- Stmt ----------------------------------------------------------------
@@ -503,9 +516,7 @@ namespace Basic {
             if (type.is(Ty::Kind::Void))
                 error("parameter '" + d.params[i].name + "' of '" + d.name
                       + "' cannot have type void");
-            // Inside the body a reference reads like the value it points to, so
-            // `a.f` works unchanged; only the call has to spell out `&`.
-            declare(d.params[i].name, type.is(Ty::Kind::Ref) ? *type.elem : type);
+            declare(d.params[i].name, type);
         }
 
         // Params and the body's top-level locals share one scope, matching how

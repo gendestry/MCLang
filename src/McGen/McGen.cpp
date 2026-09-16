@@ -9,6 +9,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <regex>
 #include <set>
@@ -106,6 +107,7 @@ namespace Basic {
         addEntries();
         if (!m_errors.empty())
             return false;
+        raiseCommandLimit();
 
         namespace fs = std::filesystem;
         const fs::path root(outDir);
@@ -149,6 +151,86 @@ namespace Basic {
     }
 
     // The fixed parts of the pack: setup, the entry point and memory access.
+    // Minecraft stops a function after maxCommandChainLength commands (65536 by
+    // default), counting every nested call, and drops the rest without a word.
+    // How many run can't be known here -- a loop or a recursive call runs as many
+    // times as the data says -- so the limit is raised whenever that could happen:
+    // the program loops or recurses, or has more commands than the limit even
+    // run once each. A gamerule stays set in the world once it is raised.
+    //
+    // The rule was renamed in newer versions, so both names are tried, each from
+    // a macro of its own: a macro line is only parsed when it runs, so the name a
+    // version doesn't know fails there instead of making `load` unloadable.
+    void McGen::raiseCommandLimit() {
+        std::size_t commands = 0;
+        for (const auto &[path, lines] : m_files)
+            for (const std::string &line : lines)
+                commands += !line.empty() && line[0] != '#';
+        if (!mayRunLong() && commands <= COMMAND_LIMIT)
+            return;
+
+        m_files["rt/limit_old"] = {"# Macro: the pre-1.21.11 name.", "$gamerule maxCommandChainLength $(n)"};
+        m_files["rt/limit_new"] = {"# Macro: the 1.21.11+ name.", "$gamerule max_command_sequence_length $(n)"};
+        // At the top of every function run from outside -- load, run, tick and each
+        // entry point (their files sit directly under mcl:, the rest under fn/ or rt/)
+        // -- so it holds even when a world was loaded before this pack was rebuilt.
+        const std::string n = std::to_string(INT_MAX);
+        for (auto &[path, lines] : m_files) {
+            if (path.contains('/'))
+                continue;
+            lines.insert(lines.begin() + (!lines.empty() && lines[0].starts_with("#") ? 1 : 0), {
+                "# The program can run more commands than the default limit allows.",
+                "function mcl:rt/limit_old {n:" + n + "}",
+                "function mcl:rt/limit_new {n:" + n + "}",
+            });
+        }
+    }
+
+    // Whether some function loops (jumps back to a label at or before the jump)
+    // or some chain of calls leads back to where it started.
+    bool McGen::mayRunLong() const {
+        std::unordered_map<std::string, std::set<std::string>> callees;
+        for (const LinCodeChunk &chunk : m_lin.codeChunks()) {
+            std::unordered_map<std::string, std::size_t> labels;
+            for (std::size_t i = 0; i < chunk.stmts.size(); ++i)
+                if (const auto *label = dynamic_cast<const ImcLABEL *>(chunk.stmts[i].get()))
+                    labels[label->label.name] = i;
+
+            for (std::size_t i = 0; i < chunk.stmts.size(); ++i) {
+                const ImcStmt &s = *chunk.stmts[i];
+                auto back = [&](const ImcLabel &to) {
+                    auto it = labels.find(to.name);
+                    return it != labels.end() && it->second <= i;
+                };
+                if (const auto *jump = dynamic_cast<const ImcJUMP *>(&s); jump && back(jump->label))
+                    return true;
+                if (const auto *cjump = dynamic_cast<const ImcCJUMP *>(&s); cjump && (back(cjump->pos) || back(cjump->neg)))
+                    return true;
+                if (const ImcCALL *call = Liveness::callIn(s))
+                    callees[chunk.frame->label].insert(call->label.name);
+            }
+        }
+
+        // A cycle in the call graph: depth-first, with the functions on the path.
+        enum class State { Unvisited, OnPath, Done };
+        std::unordered_map<std::string, State> state;
+        std::function<bool(const std::string &)> cycle = [&](const std::string &function) {
+            State &s = state[function];
+            if (s != State::Unvisited)
+                return s == State::OnPath;
+            s = State::OnPath;
+            for (const std::string &callee : callees[function])
+                if (cycle(callee))
+                    return true;
+            state[function] = State::Done;
+            return false;
+        };
+        for (const LinCodeChunk &chunk : m_lin.codeChunks())
+            if (cycle(chunk.frame->label))
+                return true;
+        return false;
+    }
+
     void McGen::addRuntime(bool hasMain, bool hasTick) {
         m_files["load"] = {
             "# Runs when the datapack loads.",

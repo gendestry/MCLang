@@ -136,7 +136,7 @@ namespace Basic {
     void Resolver::visit(NamedType &t) { use(t.name, Kind::Record, "record type"); }
 
     void Resolver::visit(ArrayType &t) { walk(t.elem); }
-    void Resolver::visit(RefType &t) { walk(t.elem); }
+    void Resolver::visit(PointerType &t) { walk(t.elem); }
 
     // ---- Expr ----------------------------------------------------------------
 
@@ -180,7 +180,8 @@ namespace Basic {
         walk(e.index);
     }
 
-    void Resolver::visit(RefExpr &e) { walk(e.operand); }
+    void Resolver::visit(AddressExpr &e) { walk(e.operand); }
+    void Resolver::visit(DerefExpr &e) { walk(e.operand); }
 
     // ---- Stmt ----------------------------------------------------------------
 

@@ -10,7 +10,7 @@ namespace Basic
     struct AtomicType;
     struct NamedType;
     struct ArrayType;
-    struct RefType;
+    struct PointerType;
     struct NumberExpr;
     struct BoolExpr;
     struct StringExpr;
@@ -19,7 +19,8 @@ namespace Basic
     struct NamedExpr;
     struct AccessExpr;
     struct IndexExpr;
-    struct RefExpr;
+    struct AddressExpr;
+    struct DerefExpr;
     struct UnaryExpr;
     struct CompoundStmt;
     struct VarDeclStmt;
@@ -40,7 +41,7 @@ namespace Basic
         virtual void visit(AtomicType &) = 0;
         virtual void visit(NamedType &) = 0;
         virtual void visit(ArrayType &) = 0;
-        virtual void visit(RefType &) = 0;
+        virtual void visit(PointerType &) = 0;
     };
 
     struct ExprVisitor
@@ -54,7 +55,8 @@ namespace Basic
         virtual void visit(NamedExpr &) = 0;
         virtual void visit(AccessExpr &) = 0;
         virtual void visit(IndexExpr &) = 0;
-        virtual void visit(RefExpr &) = 0;
+        virtual void visit(AddressExpr &) = 0;
+        virtual void visit(DerefExpr &) = 0;
         virtual void visit(UnaryExpr &) = 0;
     };
 
@@ -135,7 +137,7 @@ namespace Basic
         void accept(TypeVisitor &v) override { v.visit(*this); }
     };
 
-    struct RefType : Type
+    struct PointerType : Type
     {
         TypePtr elem;
         void accept(TypeVisitor &v) override { v.visit(*this); }
@@ -195,7 +197,13 @@ namespace Basic
         void accept(ExprVisitor &v) override { v.visit(*this); }
     };
 
-    struct RefExpr : Expr
+    struct AddressExpr : Expr
+    {
+        ExprPtr operand;
+        void accept(ExprVisitor &v) override { v.visit(*this); }
+    };
+
+    struct DerefExpr : Expr
     {
         ExprPtr operand;
         void accept(ExprVisitor &v) override { v.visit(*this); }

@@ -58,15 +58,8 @@ namespace Basic {
             if (k.rule != "param")
                 continue;
 
-            // param : AMP? type IDENTIFIER   kids = [AMP, type, IDENTIFIER] | [type, IDENTIFIER]
-            const bool byRef = k.kids[0].isTokenName("AMP");
-            TypePtr type = buildType(k.kids[byRef ? 1 : 0]);
-            if (byRef) {
-                auto ref = std::make_unique<RefType>();
-                ref->elem = std::move(type);
-                type = std::move(ref);
-            }
-            d->params.push_back({std::move(type), k.kids[byRef ? 2 : 1].token->value});
+            // param : type IDENTIFIER   kids = [type, IDENTIFIER]
+            d->params.push_back({buildType(k.kids[0]), k.kids[1].token->value});
         }
         return d;
     }
@@ -82,8 +75,8 @@ namespace Basic {
         return d;
     }
 
-    // type : (primtype | namedtype) (LBRACKET NUM RBRACKET)*
-    //   kids = [ the chosen rule node, LBRACKET, NUM, RBRACKET, ... ]
+    // type : (primtype | namedtype) MUL* (LBRACKET NUM RBRACKET)*
+    //   kids = [ the chosen rule node, MUL..., LBRACKET, NUM, RBRACKET, ... ]
     TypePtr AstBuilder::buildType(const Node &type) {
         const Node &inner = type.kids[0];
         TypePtr base;
@@ -98,6 +91,14 @@ namespace Basic {
             base = std::move(t);
         } else {
             throw std::runtime_error("buildType: unexpected '" + inner.rule + "'");
+        }
+
+        // Stars bind to the base first: float*[3] is three pointers, float** a
+        // pointer to a pointer.
+        for (std::size_t i = 1; i < type.kids.size() && type.kids[i].isTokenName("MUL"); ++i) {
+            auto t = std::make_unique<PointerType>();
+            t->elem = std::move(base);
+            base = std::move(t);
         }
 
         // The lengths are written outermost first, so wrap from the last one in:
@@ -249,7 +250,17 @@ namespace Basic {
         if (node.rule == "mulexpr") // mulexpr : unaryexpr   (single child)
             return buildExpr(node.kids[0]);
 
-        if (node.rule == "unaryexpr") { // NOT unaryexpr | accessexpr
+        if (node.rule == "unaryexpr") { // NOT unaryexpr | MUL unaryexpr | AMP unaryexpr | accessexpr
+            if (node.kids[0].isTokenName("MUL")) { // *p
+                auto d = std::make_unique<DerefExpr>();
+                d->operand = buildExpr(node.kids[1]);
+                return d;
+            }
+            if (node.kids[0].isTokenName("AMP")) { // &x
+                auto a = std::make_unique<AddressExpr>();
+                a->operand = buildExpr(node.kids[1]);
+                return a;
+            }
             if (node.kids[0].isTokenName("NOT")) {
                 auto u = std::make_unique<UnaryExpr>();
                 u->op = node.kids[0].token->value;
@@ -321,14 +332,7 @@ namespace Basic {
                 const Node &arg = node.kids[i];
                 if (arg.rule != "arg")
                     continue;
-                // arg : (AMP expr) | expr   kids = [AMP, expr] | [expr]
-                if (arg.kids[0].isTokenName("AMP")) {
-                    auto ref = std::make_unique<RefExpr>();
-                    ref->operand = buildExpr(arg.kids[1]);
-                    call->args.push_back(std::move(ref));
-                } else {
-                    call->args.push_back(buildExpr(arg.kids[0]));
-                }
+                call->args.push_back(buildExpr(arg.kids[0])); // arg : expr
             }
             return call;
         }

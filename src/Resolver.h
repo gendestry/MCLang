@@ -67,7 +67,7 @@ namespace Basic {
         void visit(AtomicType &t) override;
         void visit(NamedType &t) override;
         void visit(ArrayType &t) override;
-        void visit(RefType &t) override;
+        void visit(PointerType &t) override;
 
         // ---- Expr ----
         void visit(NumberExpr &e) override;
@@ -79,7 +79,8 @@ namespace Basic {
         void visit(NamedExpr &e) override;
         void visit(AccessExpr &e) override;
         void visit(IndexExpr &e) override;
-        void visit(RefExpr &e) override;
+        void visit(AddressExpr &e) override;
+        void visit(DerefExpr &e) override;
 
         // ---- Stmt ----
         void visit(CompoundStmt &s) override;

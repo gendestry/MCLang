@@ -52,7 +52,7 @@ namespace Basic {
         void visit(AtomicType &t) override;
         void visit(NamedType &t) override;
         void visit(ArrayType &t) override;
-        void visit(RefType &t) override;
+        void visit(PointerType &t) override;
 
         // ---- Expr ----
         void visit(NumberExpr &e) override;
@@ -64,7 +64,8 @@ namespace Basic {
         void visit(NamedExpr &e) override;
         void visit(AccessExpr &e) override;
         void visit(IndexExpr &e) override;
-        void visit(RefExpr &e) override;
+        void visit(AddressExpr &e) override;
+        void visit(DerefExpr &e) override;
 
         // ---- Stmt ----
         void visit(CompoundStmt &s) override;
@@ -86,9 +87,9 @@ namespace Basic {
         // own name. Error is the "already complained about this" type: it matches
         // anything, so it never produces a second error further up the tree.
         struct Ty {
-            enum class Kind { Float, Bool, String, Void, Record, Array, Ref, Error } kind = Kind::Error;
+            enum class Kind { Float, Bool, String, Void, Record, Array, Pointer, Error } kind = Kind::Error;
             std::string record; // only meaningful when kind == Record
-            // `elem` is meaningful for Array and Ref, `length` only for Array.
+            // `elem` is meaningful for Array and Pointer, `length` only for Array.
             // Shared rather than owned: a Ty is
             // copied freely, and an element type never changes once built.
             std::shared_ptr<const Ty> elem;
@@ -113,8 +114,8 @@ namespace Basic {
             t.length = length;
             return t;
         }
-        static Ty makeRef(Ty elem) {
-            Ty t{Ty::Kind::Ref, {}};
+        static Ty makePointer(Ty elem) {
+            Ty t{Ty::Kind::Pointer, {}};
             t.elem = std::make_shared<const Ty>(std::move(elem));
             return t;
         }

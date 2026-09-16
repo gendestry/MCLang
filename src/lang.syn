@@ -2,10 +2,10 @@ entry: decl+ ;
 decl        : recdecl | fundecl | vardecl ;
 vardecl     : type IDENTIFIER (EQ expr)? SEMIC;
 fundecl     : type IDENTIFIER LPAREN (param (COMMA param)*)? RPAREN compstmt;
-param       : AMP? type IDENTIFIER;
+param       : type IDENTIFIER;
 recdecl     : RECORD IDENTIFIER LCURLY (vardecl)+ RCURLY SEMIC;
 
-type        : (primtype | namedtype) (LBRACKET NUM RBRACKET)*;
+type        : (primtype | namedtype) MUL* (LBRACKET NUM RBRACKET)*;
 primtype    : FLOAT | BOOL | VOID | STRING ;
 namedtype   : IDENTIFIER;
 
@@ -28,12 +28,12 @@ plusexpr    : mulexpr n_mulexpr? ;
 n_mulexpr   : (MUL | DIV) mulexpr n_mulexpr? ;
 
 mulexpr     : unaryexpr ;
-unaryexpr   : NOT unaryexpr | accessexpr ;
+unaryexpr   : NOT unaryexpr | MUL unaryexpr | AMP unaryexpr | accessexpr ;
 accessexpr  : atom ((DOT IDENTIFIER) | (LBRACKET expr RBRACKET))* ;
 atom        : NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr;
 namedexpr   : IDENTIFIER;
 funcall     : IDENTIFIER LPAREN (arg (COMMA arg)*)? RPAREN;
-arg         : (AMP expr) | expr;
+arg         : expr;
 group       : LPAREN expr RPAREN ;
 
 stmt        : compstmt | ifstmt | whilestmt | forstmt | vardeclstmt | exprstmt | assignstmt | returnstmt;
