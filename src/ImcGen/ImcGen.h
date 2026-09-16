@@ -19,6 +19,7 @@
 //  a function returning a value wider than one slot.
 
 #pragma once
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,6 +29,7 @@
 #include "Resolver.h" // CMD_BUILTIN
 #include "ImcGen/data/expr/ImcExpr.h"
 #include "ImcGen/data/names/ImcLabel.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcStmt.h"
 
 namespace Basic {
@@ -103,8 +105,9 @@ namespace Basic {
         ImcStmtPtr gen(const StmtPtr &s); // a missing statement is an empty STMTS
 
         ImcExprPtr shortCircuit(BinaryExpr &e);
-        // cmd("...", ...) -> the CMD statement that emits it.
-        ImcStmtPtr genCommand(CallExpr &call);
+        // cmd("...", ...) -> the CMD statement that emits it, keeping its success or
+        // result in `dst` when there is one.
+        ImcStmtPtr genCommand(CallExpr &call, ImcCMD::Store store, std::optional<ImcTemp> dst);
 
         // FP of the frame at static depth `depth`, reached from the current frame
         // through the static links.

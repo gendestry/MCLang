@@ -42,6 +42,15 @@ namespace Basic {
 
         std::string score(const std::string &holder) { return holder + " mcl"; }
 
+        // As short as it can be written: "3", "37.5", "0.001".
+        std::string decimal(double value) {
+            std::string s = std::to_string(value);
+            s.erase(s.find_last_not_of('0') + 1);
+            if (s.back() == '.')
+                s.pop_back();
+            return s == "-0" ? "0" : s;
+        }
+
         std::string lower(std::string text) {
             for (char &c : text)
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -709,41 +718,40 @@ namespace Basic {
 
     void McGen::visit(ImcESTMT &s) { gen(*s.expr); }
 
-    // A command with no holes is emitted as it stands. One with holes becomes a
-    // function macro: each value is written into storage mcl:args as a plain
-    // (unscaled) number, and the macro puts them into the command text.
+    // A command with no holes runs as it stands. One with holes becomes a function
+    // macro: each value goes into storage mcl:args as a plain number -- a double,
+    // so 37.5 arrives as 37.5 and 3 as 3 -- and the macro puts them into the text.
+    //
+    // When the value is kept, `execute store` catches the command's success or
+    // result (a macro passes its command's back through `return run`), and it is
+    // scaled into fixed point like every other number.
     void McGen::visit(ImcCMD &s) {
-        if (s.args.empty()) {
-            emit(s.text);
+        std::string run = s.text;
+        if (!s.args.empty()) {
+            std::vector<std::string> holders(s.args.size());
+            for (std::size_t i = 0; i < s.args.size(); ++i)
+                if (!m_optimize || !dynamic_cast<ImcCONST *>(s.args[i].get()))
+                    holders[i] = gen(*s.args[i]);
+
+            for (std::size_t i = 0; i < holders.size(); ++i) {
+                const std::string at = "storage mcl:args a" + std::to_string(i);
+                if (const auto *c = dynamic_cast<ImcCONST *>(s.args[i].get()); m_optimize && c)
+                    emit("data modify " + at + " set value " + decimal(c->value) + "d");
+                else
+                    emit("execute store result " + at + " double " + decimal(1.0 / SCALE)
+                         + " run scoreboard players get " + score(holders[i]));
+            }
+            run = "function " + commandFile(s.text) + " with storage mcl:args";
+        }
+
+        if (!s.dst) {
+            emit(run);
             return;
         }
-
-        // Optimized, a constant is written as it stands, and a holder is scaled down
-        // as it is stored: one command instead of three. `int 0.001` rounds toward
-        // zero where `/= #scale` rounds down, which only differs for a negative
-        // number that isn't whole.
-        std::vector<std::string> holders(s.args.size());
-        for (std::size_t i = 0; i < s.args.size(); ++i)
-            if (!m_optimize || !dynamic_cast<ImcCONST *>(s.args[i].get()))
-                holders[i] = gen(*s.args[i]);
-
-        for (std::size_t i = 0; i < holders.size(); ++i) {
-            const std::string at = "storage mcl:args a" + std::to_string(i);
-            if (m_optimize) {
-                if (const auto *c = dynamic_cast<ImcCONST *>(s.args[i].get()))
-                    emit("data modify " + at + " set value "
-                         + std::to_string(static_cast<long long>(std::floor(c->value))));
-                else
-                    emit("execute store result " + at + " int 0.001 run scoreboard players get " + score(holders[i]));
-                continue;
-            }
-            const std::string whole = scratch();
-            copy(whole, holders[i]);
-            emit(opLine(whole, "/=", "#scale")); // a command wants 3, not 3000
-            emit("execute store result storage mcl:args a" + std::to_string(i)
-                 + " int 1 run scoreboard players get " + score(whole));
-        }
-        emit("function " + commandFile(s.text) + " with storage mcl:args");
+        const std::string holder = "$" + s.dst->toString();
+        emit("execute store " + std::string(s.store == ImcCMD::Store::Success ? "success" : "result") + " score "
+             + score(holder) + " run " + run);
+        emit(opLine(holder, "*=", "#scale"));
     }
 
     // One file per distinct command, shared by every place that runs it.
@@ -764,7 +772,8 @@ namespace Basic {
         }
 
         const std::string path = "rt/cmd" + std::to_string(m_commands.size());
-        m_files[path] = {"# Macro: " + text, "$" + macro};
+        // `return run` hands the command's success and result back to the caller.
+        m_files[path] = {"# Macro: " + text, "$return run " + macro};
         const std::string name = "mcl:" + path;
         m_commands[text] = name;
         return name;

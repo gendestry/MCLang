@@ -6,23 +6,35 @@
 //  put there -- so cmd("setblock {} {} {} stone", x, y, z) keeps the command
 //  intact and lets the machine fill in the coordinates.
 //
-//  It is a statement, not an expression: a command has no value, and nothing
-//  about it may be folded away or reordered, since running it is the point.
+//  It is a statement, so nothing about it is folded away or reordered: running
+//  it is the point. When its value is wanted -- cmd(...) or cmdValue(...) used
+//  in an expression -- `store` says which one, and `dst` is the temp it lands
+//  in, in fixed point like every other number; ImcGen wraps the pair in an
+//  SEXPR that reads `dst`.
 
 #pragma once
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ImcGen/data/expr/ImcExpr.h"
+#include "ImcGen/data/names/ImcTemp.h"
 #include "ImcGen/data/stmt/ImcStmt.h"
 
 namespace Basic {
     struct ImcCMD : ImcStmt {
+        // None: run it and drop the value. Success: 1 when it worked, else 0.
+        // Result: the number the command reports (a count, a score, ...).
+        enum class Store { None, Success, Result };
+
         std::string text;
         std::vector<ImcExprPtr> args;
+        Store store = Store::None;
+        std::optional<ImcTemp> dst; // set exactly when store is not None
 
         explicit ImcCMD(std::string text) : text(std::move(text)) {}
+        ImcCMD(std::string text, Store store, ImcTemp dst) : text(std::move(text)), store(store), dst(dst) {}
 
         void addArg(ImcExprPtr arg) { args.push_back(std::move(arg)); }
 
@@ -40,7 +52,10 @@ namespace Basic {
             std::string out = "CMD(\"" + text + "\"";
             for (const ImcExprPtr &arg : args)
                 out += ", " + arg->toString();
-            return out + ")";
+            out += ")";
+            if (dst)
+                out += (store == Store::Success ? " success -> " : " result -> ") + dst->toString();
+            return out;
         }
     };
 }

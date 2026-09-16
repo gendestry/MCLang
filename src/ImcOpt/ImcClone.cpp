@@ -92,7 +92,8 @@ namespace Basic {
             return copy;
         }
         if (const auto *cmd = dynamic_cast<const ImcCMD *>(&stmt)) {
-            auto copy = std::make_unique<ImcCMD>(cmd->text);
+            auto copy = cmd->dst ? std::make_unique<ImcCMD>(cmd->text, cmd->store, mapTemp(*cmd->dst, r))
+                                 : std::make_unique<ImcCMD>(cmd->text);
             for (const ImcExprPtr &arg : cmd->args)
                 copy->addArg(clone(*arg, r));
             return copy;

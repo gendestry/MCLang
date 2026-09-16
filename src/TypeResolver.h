@@ -134,8 +134,8 @@ namespace Basic {
         // enforces declare-before-use, has already had its say on ordering.)
         void collectSignatures(const Program &program);
 
-        // ---- the cmd built-in ----
-        // Reports anything wrong with a cmd(...) call; `args` are its already
+        // ---- the cmd / cmdValue built-ins ----
+        // Reports anything wrong with a cmd(...) or cmdValue(...) call; `args` are its already
         // computed argument types.
         void checkCommand(const CallExpr &e, const std::vector<Ty> &args);
 

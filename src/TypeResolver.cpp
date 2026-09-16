@@ -287,9 +287,9 @@ namespace Basic {
         for (const ExprPtr &a : e.args)
             args.push_back(typeOf(a));
 
-        if (e.callee == CMD_BUILTIN) {
+        if (isCommandBuiltin(e.callee)) {
             checkCommand(e, args);
-            m_result = makeVoid();
+            m_result = e.callee == CMD_BUILTIN ? makeBool() : makeFloat(); // success, or result
             print(dimText("command ") + nameText(e.callee) + dimText(" : ") + typeText(m_result.name()));
             return;
         }
@@ -315,22 +315,22 @@ namespace Basic {
         print(dimText("call ") + nameText(e.callee) + dimText(" : ") + typeText(m_result.name()));
     }
 
-    // cmd's first argument is the command itself and has to be written out as a
+    // A command's first argument is the command itself and has to be written out as a
     // literal -- it becomes part of the generated datapack, so there is nothing
     // to run later that could produce it. The rest fill in its `{}` holes.
     void TypeResolver::checkCommand(const CallExpr &e, const std::vector<Ty> &args) {
         if (args.empty()) {
-            error("cmd() needs a command, as in cmd(\"say hi\")");
+            error(e.callee + "() needs a command, as in " + e.callee + "(\"say hi\")");
             return;
         }
         const auto *text = dynamic_cast<const StringExpr *>(e.args[0].get());
         if (!text) {
-            error("the command passed to cmd() must be a string literal");
+            error("the command passed to " + e.callee + "() must be a string literal");
             return;
         }
         for (std::size_t i = 1; i < args.size(); ++i)
             if (!makeFloat().accepts(args[i]))
-                error("argument " + std::to_string(i + 1) + " of cmd() expects float, got "
+                error("argument " + std::to_string(i + 1) + " of " + e.callee + "() expects float, got "
                       + args[i].name());
 
         std::size_t holes = 0;

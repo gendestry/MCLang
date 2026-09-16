@@ -152,9 +152,9 @@ namespace Basic {
     void Resolver::visit(UnaryExpr &e) { walk(e.operand); }
 
     void Resolver::visit(CallExpr &e) {
-        // cmd("...") is built in: it names no declaration, so there is nothing
-        // to look up -- only its arguments are ordinary expressions.
-        if (e.callee == CMD_BUILTIN) {
+        // cmd / cmdValue are built in: they name no declaration, so there is
+        // nothing to look up -- only their arguments are ordinary expressions.
+        if (isCommandBuiltin(e.callee)) {
             print(dimText("builtin ") + nameText(e.callee));
             for (const ExprPtr &a : e.args)
                 walk(a);

@@ -88,7 +88,10 @@ namespace Basic {
         }
 
         void visit(ImcCMD &s) override {
-            line("CMD", '"' + s.text + '"');
+            line("CMD", '"' + s.text + '"'
+                            + (s.dst ? (s.store == ImcCMD::Store::Success ? " success -> " : " result -> ")
+                                           + s.dst->toString()
+                                     : ""));
             for (ImcExprPtr &arg : s.args)
                 nested(*arg);
         }

@@ -344,6 +344,8 @@ namespace Basic {
     void Interpreter::visit(ImcESTMT &s) { eval(*s.expr); }
     // There is no server to run it against, so the command is printed with its
     // holes filled in -- enough to check that the values reaching it are right.
+    // A command's value can't be known here, so one that is used reads as 0:
+    // anything that branches on cmd(...) only means something in the datapack.
     void Interpreter::visit(ImcCMD &s) {
         std::string out;
         std::size_t arg = 0;
@@ -357,6 +359,8 @@ namespace Basic {
             out += s.text[i];
         }
         std::cout << std::string((m_depth + 1) * 2, ' ') << dimText("/") << out << std::endl;
+        if (s.dst)
+            m_temps[s.dst->id] = 0;
     }
 
     void Interpreter::visit(ImcJUMP &s) { m_jump = s.label.name; }

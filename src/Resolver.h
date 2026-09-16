@@ -23,9 +23,17 @@
 #include "LangAst.h"
 
 namespace Basic {
-    // The one built-in "function": cmd("setblock {} {} {} stone", x, y, z) emits
-    // the command as written, with each `{}` replaced by an argument's value.
+    // The built-in "functions" that run a Minecraft command as written, with each
+    // `{}` replaced by an argument's value:
+    //   cmd("execute if block {} {} {} stone", x, y, z)  -> bool, whether it succeeded
+    //   cmdValue("execute if entity @a")                 -> float, its result
+    // Either one can also stand alone as a statement, dropping the value.
     inline constexpr const char *CMD_BUILTIN = "cmd";
+    inline constexpr const char *CMD_VALUE_BUILTIN = "cmdValue";
+
+    inline bool isCommandBuiltin(const std::string &name) {
+        return name == CMD_BUILTIN || name == CMD_VALUE_BUILTIN;
+    }
 
     class Resolver : public TypeVisitor,
                      public ExprVisitor,

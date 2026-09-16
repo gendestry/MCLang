@@ -72,7 +72,7 @@ namespace Basic {
     // disturb another that was already worked out.
     void StmtCanonizer::visit(ImcCMD &s) {
         ExprCanonizer exprs(m_out);
-        auto flat = std::make_unique<ImcCMD>(s.text);
+        auto flat = s.dst ? std::make_unique<ImcCMD>(s.text, s.store, *s.dst) : std::make_unique<ImcCMD>(s.text);
         for (ImcExprPtr &arg : s.args)
             flat->addArg(exprs.toTemp(*arg));
         m_out.push_back(std::move(flat));

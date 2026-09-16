@@ -215,8 +215,13 @@ namespace Basic {
     }
 
     void ImcGen::visit(CallExpr &e) {
-        if (e.callee == CMD_BUILTIN) {
-            m_expr = failed("cmd(...) is a statement on its own, not a value");
+        // A command used as a value: run it, then read what it left behind.
+        if (isCommandBuiltin(e.callee)) {
+            const ImcTemp result = ImcTemp::fresh();
+            ImcStmtPtr cmd = genCommand(e, e.callee == CMD_BUILTIN ? ImcCMD::Store::Success
+                                                                    : ImcCMD::Store::Result, result);
+            m_expr = std::make_unique<ImcSEXPR>(std::move(cmd), std::make_unique<ImcTEMP>(result));
+            m_type = nullptr;
             return;
         }
 
@@ -320,9 +325,9 @@ namespace Basic {
     }
 
     void ImcGen::visit(ExprStmt &s) {
-        // A command is the one call that becomes a statement of its own.
-        if (auto *call = dynamic_cast<CallExpr *>(s.expr.get()); call && call->callee == CMD_BUILTIN) {
-            m_stmt = genCommand(*call);
+        // A command whose value is dropped needn't store it anywhere.
+        if (auto *call = dynamic_cast<CallExpr *>(s.expr.get()); call && isCommandBuiltin(call->callee)) {
+            m_stmt = genCommand(*call, ImcCMD::Store::None, std::nullopt);
             return;
         }
         m_stmt = std::make_unique<ImcESTMT>(gen(s.expr));
@@ -330,15 +335,15 @@ namespace Basic {
 
     // TypeResolver has already checked the shape; anything still wrong here means
     // the program failed to type check, so keep quiet and generate nothing.
-    ImcStmtPtr ImcGen::genCommand(CallExpr &call) {
+    ImcStmtPtr ImcGen::genCommand(CallExpr &call, ImcCMD::Store store, std::optional<ImcTemp> dst) {
         const auto *text = call.args.empty() ? nullptr
                                              : dynamic_cast<const StringExpr *>(call.args[0].get());
         if (!text) {
-            error("ImcGen: cmd() without a literal command");
+            error("ImcGen: " + call.callee + "() without a literal command");
             return std::make_unique<ImcSTMTS>();
         }
 
-        auto cmd = std::make_unique<ImcCMD>(text->value);
+        auto cmd = dst ? std::make_unique<ImcCMD>(text->value, store, *dst) : std::make_unique<ImcCMD>(text->value);
         for (std::size_t i = 1; i < call.args.size(); ++i)
             cmd->addArg(gen(call.args[i]));
         return cmd;

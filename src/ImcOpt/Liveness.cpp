@@ -68,6 +68,8 @@ namespace Basic {
         if (const auto *move = dynamic_cast<const ImcMOVE *>(&stmt))
             if (const auto *temp = dynamic_cast<const ImcTEMP *>(move->dst.get()); temp && tracked(temp->temp))
                 out.insert(temp->temp.id);
+        if (const auto *cmd = dynamic_cast<const ImcCMD *>(&stmt); cmd && cmd->dst && tracked(*cmd->dst))
+            out.insert(cmd->dst->id);
         return out;
     }
 
