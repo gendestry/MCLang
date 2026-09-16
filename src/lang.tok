@@ -18,6 +18,7 @@ IF = if\b
 ELSE = else\b
 TRUE = true\b
 FALSE = false\b
+NULL = null\b
 
 STRING = string\b
 FLOAT = float\b
@@ -38,6 +39,8 @@ NOT = [!]
 AMP = &
 EQ = [=]
 PLUS = \+
+# -> before MINUS, or p->x would lex as p - >x.
+ARROW = ->
 MINUS = -
 MUL = \*
 DIV = /

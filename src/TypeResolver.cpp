@@ -46,6 +46,7 @@ namespace Basic {
             return t->name() + lengths;
         }
         case Kind::Pointer: return elem->name() + "*";
+        case Kind::Null: return "null";
         case Kind::Error: return "<error>";
         }
         return "<error>";
@@ -167,6 +168,19 @@ namespace Basic {
         return dynamic_cast<const IndexExpr *>(&e) || dynamic_cast<const DerefExpr *>(&e);
     }
 
+    TypeResolver::Ty TypeResolver::decay(const Ty &type) {
+        return type.is(Ty::Kind::Array) ? makePointer(*type.elem) : type;
+    }
+
+    bool TypeResolver::assignable(const Ty &to, const Ty &from) {
+        if (to.accepts(from))
+            return true;
+        if (!to.is(Ty::Kind::Pointer))
+            return false;
+        const Ty decayed = decay(from);
+        return from.is(Ty::Kind::Null) || (decayed.is(Ty::Kind::Pointer) && to.accepts(decayed));
+    }
+
     // ---- Type ----------------------------------------------------------------
 
     void TypeResolver::visit(AtomicType &t) {
@@ -215,6 +229,7 @@ namespace Basic {
     void TypeResolver::visit(NumberExpr &) { m_result = makeFloat(); }
     void TypeResolver::visit(BoolExpr &) { m_result = makeBool(); }
     void TypeResolver::visit(StringExpr &) { m_result = makeString(); }
+    void TypeResolver::visit(NullExpr &) { m_result = makeNull(); }
 
     // Every condition site prints the same way, so the trace shows which construct
     // demanded the bool as well as what it actually got.
@@ -234,6 +249,31 @@ namespace Basic {
         const bool ordering = op == "<" || op == ">" || op == "<=" || op == ">=";
         const bool equality = op == "==" || op == "!=";
         const bool logical = op == "&&" || op == "||";
+
+        // Pointers, as in C: p + n and n + p move by whole elements, p - n back,
+        // p - q counts the elements between two, and pointers of one type (or
+        // null) compare. An array in any of these stands for its first element.
+        const Ty l = decay(lhs), r = decay(rhs);
+        const bool lp = l.is(Ty::Kind::Pointer), rp = r.is(Ty::Kind::Pointer);
+        const bool ln = l.is(Ty::Kind::Null), rn = r.is(Ty::Kind::Null);
+        if (lp || rp || ln || rn) {
+            const bool number = makeFloat().accepts(lp ? r : l);
+            if (op == "+" && (lp != rp) && !ln && !rn && number)
+                m_result = lp ? l : r;
+            else if (op == "-" && lp && !rp && !rn && makeFloat().accepts(r))
+                m_result = l;
+            else if (op == "-" && lp && rp && l.accepts(r))
+                m_result = makeFloat();
+            else if ((ordering && lp && rp && l.accepts(r))
+                     || (equality && (ln || rn || (lp && rp && l.accepts(r))) && (lp || ln) && (rp || rn)))
+                m_result = makeBool();
+            else {
+                error("operator '" + op + "' can't be used on " + lhs.name() + " and " + rhs.name());
+                m_result = makeError();
+            }
+            print(dimText("binary ") + nameText(op) + dimText(" : ") + typeText(m_result.name()));
+            return;
+        }
 
         auto require = [&](const Ty &want) {
             bool ok = true;
@@ -305,7 +345,7 @@ namespace Basic {
                   + " argument(s), but " + std::to_string(args.size()) + " were given");
         } else {
             for (std::size_t i = 0; i < args.size(); ++i)
-                if (!sig.params[i].accepts(args[i]))
+                if (!assignable(sig.params[i], args[i]))
                     error("argument " + std::to_string(i + 1) + " of '" + e.callee
                           + "' expects " + sig.params[i].name() + ", got " + args[i].name());
         }
@@ -410,7 +450,7 @@ namespace Basic {
     }
 
     void TypeResolver::visit(DerefExpr &e) {
-        const Ty operand = typeOf(e.operand);
+        const Ty operand = decay(typeOf(e.operand)); // *a is a[0]
         if (operand.isError()) {
             m_result = makeError();
             return;
@@ -444,7 +484,7 @@ namespace Basic {
             error("function '" + m_function + "' returns void, but a value was returned");
             return;
         }
-        if (!m_returnType.accepts(value))
+        if (!assignable(m_returnType, value))
             error("function '" + m_function + "' must return " + m_returnType.name() + ", got "
                   + value.name());
     }
@@ -457,7 +497,7 @@ namespace Basic {
               + typeText(value.name()));
         if (s.target && !isLValue(*s.target))
             error("left-hand side of an assignment must be a variable, a field or an array element");
-        else if (!target.accepts(value))
+        else if (!assignable(target, value))
             error("cannot assign " + value.name() + " to " + target.name());
     }
 
@@ -493,7 +533,7 @@ namespace Basic {
 
         if (d.init) {
             const Ty init = typeOf(d.init);
-            if (!declared.accepts(init))
+            if (!assignable(declared, init))
                 error("cannot initialise '" + d.name + "' of type " + declared.name() + " with "
                       + init.name());
         }

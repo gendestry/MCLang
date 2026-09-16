@@ -58,6 +58,7 @@ namespace Basic {
         void visit(NumberExpr &e) override;
         void visit(BoolExpr &e) override;
         void visit(StringExpr &e) override;
+        void visit(NullExpr &e) override;
         void visit(BinaryExpr &e) override;
         void visit(UnaryExpr &e) override;
         void visit(CallExpr &e) override;
@@ -87,7 +88,7 @@ namespace Basic {
         // own name. Error is the "already complained about this" type: it matches
         // anything, so it never produces a second error further up the tree.
         struct Ty {
-            enum class Kind { Float, Bool, String, Void, Record, Array, Pointer, Error } kind = Kind::Error;
+            enum class Kind { Float, Bool, String, Void, Record, Array, Pointer, Null, Error } kind = Kind::Error;
             std::string record; // only meaningful when kind == Record
             // `elem` is meaningful for Array and Pointer, `length` only for Array.
             // Shared rather than owned: a Ty is
@@ -105,6 +106,7 @@ namespace Basic {
         static Ty makeFloat() { return {Ty::Kind::Float, {}}; }
         static Ty makeBool() { return {Ty::Kind::Bool, {}}; }
         static Ty makeString() { return {Ty::Kind::String, {}}; }
+        static Ty makeNull() { return {Ty::Kind::Null, {}}; }
         static Ty makeVoid() { return {Ty::Kind::Void, {}}; }
         static Ty makeError() { return {Ty::Kind::Error, {}}; }
         static Ty makeRecord(std::string name) { return {Ty::Kind::Record, std::move(name)}; }
@@ -146,6 +148,12 @@ namespace Basic {
         void checkCondition(const ExprPtr &cond, const char *what);
         Ty typeOfType(const TypePtr &t); // a written type annotation -> Ty
         static bool isLValue(const Expr &e);
+        // C's conversions: an array used as a value is a pointer to its first
+        // element, and null goes wherever a pointer does.
+        static Ty decay(const Ty &type);
+        // Whether a `from` may be stored where a `to` goes: an initialiser, an
+        // assignment, an argument or a return value.
+        static bool assignable(const Ty &to, const Ty &from);
 
         // ---- environment ----
         void pushScope(const char *what);

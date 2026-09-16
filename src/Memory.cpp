@@ -150,6 +150,7 @@ namespace Basic {
     void Memory::visit(NumberExpr &) {}
     void Memory::visit(BoolExpr &) {}
     void Memory::visit(StringExpr &) {}
+    void Memory::visit(NullExpr &) {}
     void Memory::visit(NamedExpr &) {}
 
     void Memory::visit(BinaryExpr &e) {

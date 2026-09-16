@@ -52,44 +52,43 @@ void grid(float w, float h)
   }
 }
 
-// A w*h matrix: row-major, element (row, col) at data[row * w + col].
-// There is no heap, so storage is a fixed 64 slots (up to 8x8).
-
-// A w*h matrix: row-major, element (row, col) at data[row * w + col].
-// There is no heap, so storage is a fixed 64 slots (up to 8x8).
+// A w*h matrix as a float**: `rows` points at h row pointers, and each row
+// pointer points at w floats. m.rows[i][j] is row i, column j, like in C.
+//
+// There is no heap, so the caller owns the storage: a float[] for the numbers
+// and a float*[] for the row pointers. init() wires the rows into it.
 record Matrix {
   float w;
   float h;
-  float[64] data;
+  float** rows;
 };
 
-void init(Matrix* m, float w, float h) {
+void init(Matrix* m, float w, float h, float** rowSlots, float* data) {
   (*m).w = w;
   (*m).h = h;
-  for (float i = 0.0; i < w * h; i = i + 1.0)
-    (*m).data[i] = 0.0;
+  (*m).rows = rowSlots;
+  for (float i = 0.0; i < h; i = i + 1.0) {
+    rowSlots[i] = &data[i * w];          // row i starts i*w numbers in
+    for (float j = 0.0; j < w; j = j + 1.0)
+      rowSlots[i][j] = 0.0;
+  }
 }
 
-float get(Matrix* m, float row, float col) {
-  return (*m).data[row * (*m).w + col];
-}
-
-void set(Matrix* m, float row, float col, float value) {
-  (*m).data[row * (*m).w + col] = value;
-}
-
-// out = a * b. Needs a.w == b.h; out is b.w wide and a.h tall.
+// out = a * b. Needs a.w == b.h; out must already be b.w wide and a.h tall.
 bool matrixMul(Matrix* a, Matrix* b, Matrix* out) {
-  if ((*a).w != (*b).h)
+  if ((*a).w != (*b).h || (*out).w != (*b).w || (*out).h != (*a).h)
     return false;
 
-  init(out, (*b).w, (*a).h);
+  float** x = (*a).rows;
+  float** y = (*b).rows;
+  float** z = (*out).rows;
   for (float i = 0.0; i < (*a).h; i = i + 1.0) {
+    float* row = z[i];
     for (float j = 0.0; j < (*b).w; j = j + 1.0) {
       float sum = 0.0;
       for (float k = 0.0; k < (*a).w; k = k + 1.0)
-        sum = sum + get(a, i, k) * get(b, k, j);
-      set(out, i, j, sum);
+        sum = sum + x[i][k] * y[k][j];
+      row[j] = sum;
     }
   }
   return true;
@@ -98,34 +97,44 @@ bool matrixMul(Matrix* a, Matrix* b, Matrix* out) {
 // Shows a matrix in chat, one row per line.
 void show(Matrix* m) {
   for (float i = 0.0; i < (*m).h; i = i + 1.0) {
+    float* row = (*m).rows[i];
     if ((*m).w == 2.0)
-      cmd("say [{} {}]", get(m, i, 0.0), get(m, i, 1.0));
+      cmd("say [{} {}]", row[0.0], row[1.0]);
     else
-      cmd("say [{} {} {}]", get(m, i, 0.0), get(m, i, 1.0), get(m, i, 2.0));
+      cmd("say [{} {} {}]", row[0.0], row[1.0], row[2.0]);
   }
 }
 
 float main() {
+  // Storage for three matrices of up to 8x8.
+  float[64] aData;  float*[8] aRows;
+  float[64] bData;  float*[8] bRows;
+  float[64] cData;  float*[8] cRows;
+
   Matrix a;
   Matrix b;
   Matrix c;
+  init(&a, 3.0, 2.0, &aRows[0.0], &aData[0.0]);
+  init(&b, 2.0, 3.0, &bRows[0.0], &bData[0.0]);
+  init(&c, 2.0, 2.0, &cRows[0.0], &cData[0.0]);
 
   // a = | 1 2 3 |      b = | 7  8 |
   //     | 4 5 6 |          | 9 10 |
   //                        |11 12 |
-  init(&a, 3.0, 2.0);
-  set(&a, 0.0, 0.0, 1.0); set(&a, 0.0, 1.0, 2.0); set(&a, 0.0, 2.0, 3.0);
-  set(&a, 1.0, 0.0, 4.0); set(&a, 1.0, 1.0, 5.0); set(&a, 1.0, 2.0, 6.0);
+  float** ar = a.rows;
+  ar[0.0][0.0] = 1.0; ar[0.0][1.0] = 2.0; ar[0.0][2.0] = 3.0;
+  ar[1.0][0.0] = 4.0; ar[1.0][1.0] = 5.0; ar[1.0][2.0] = 6.0;
 
-  init(&b, 2.0, 3.0);
-  set(&b, 0.0, 0.0, 7.0);  set(&b, 0.0, 1.0, 8.0);
-  set(&b, 1.0, 0.0, 9.0);  set(&b, 1.0, 1.0, 10.0);
-  set(&b, 2.0, 0.0, 11.0); set(&b, 2.0, 1.0, 12.0);
+  b.rows[0.0][0.0] = 7.0;  b.rows[0.0][1.0] = 8.0;
+  b.rows[1.0][0.0] = 9.0;  b.rows[1.0][1.0] = 10.0;
+  b.rows[2.0][0.0] = 11.0; b.rows[2.0][1.0] = 12.0;
 
   // c = a * b = |  58  64 |
   //             | 139 154 |
   if (!matrixMul(&a, &b, &c))
     return 0.0;
   show(&c);
-  return get(&c, 1.0, 1.0);   // 154
+
+  // The rows really are pointers into cData: row 1 starts at cData[2].
+  return c.rows[1.0][1.0] + cData[2.0];   // 154 + 139 = 293
 }

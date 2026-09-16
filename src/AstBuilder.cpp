@@ -270,14 +270,19 @@ namespace Basic {
             return buildExpr(node.kids[0]);
         }
 
-        if (node.rule == "accessexpr") { // atom ((DOT IDENTIFIER) | (LBRACKET expr RBRACKET))*
-            // kids = [atom, DOT, IDENTIFIER, LBRACKET, expr, RBRACKET, ...].
-            // Fold each `.member` and `[index]` in, left-associative:
-            // a[i].x -> Access(Index(a, i), x).
+        if (node.rule == "accessexpr") { // atom ((DOT | ARROW) IDENTIFIER | LBRACKET expr RBRACKET)*
+            // kids = [atom, DOT, IDENTIFIER, ARROW, IDENTIFIER, LBRACKET, expr, RBRACKET, ...].
+            // Fold each `.member`, `->member` and `[index]` in, left-associative:
+            // a[i].x -> Access(Index(a, i), x), and p->x is (*p).x.
             ExprPtr base = buildExpr(node.kids[0]);
             for (std::size_t i = 1; i < node.kids.size(); ++i) {
                 const Node &k = node.kids[i];
                 if (k.isTokenName("IDENTIFIER")) {
+                    if (node.kids[i - 1].isTokenName("ARROW")) {
+                        auto d = std::make_unique<DerefExpr>();
+                        d->operand = std::move(base);
+                        base = std::move(d);
+                    }
                     auto a = std::make_unique<AccessExpr>();
                     a->base = std::move(base);
                     a->member = k.token->value;
@@ -292,13 +297,16 @@ namespace Basic {
             return base;
         }
 
-        if (node.rule == "atom") { // NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr
+        if (node.rule == "atom") { // NUM | STRING_LIT | TRUE | FALSE | NULL | group | funcall | namedexpr
             const Node &k = node.kids[0];
             if (k.isTokenName("NUM")) {
                 auto n = std::make_unique<NumberExpr>();
                 n->value = std::stod(k.token->value);
                 return n;
             }
+
+            if (k.isTokenName("NULL"))
+                return std::make_unique<NullExpr>();
 
             if (k.isTokenName("TRUE") || k.isTokenName("FALSE")) {
                 auto n = std::make_unique<BoolExpr>();

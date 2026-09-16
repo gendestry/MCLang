@@ -73,6 +73,7 @@ namespace Basic {
         void visit(NumberExpr &e) override;
         void visit(BoolExpr &e) override;
         void visit(StringExpr &e) override;
+        void visit(NullExpr &e) override;
         void visit(BinaryExpr &e) override;
         void visit(UnaryExpr &e) override;
         void visit(CallExpr &e) override;

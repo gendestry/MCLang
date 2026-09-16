@@ -51,6 +51,7 @@ namespace Basic {
         void visit(NumberExpr &e) override { m_row = {label("NumberExpr", trim(e.value)), {}}; }
         void visit(BoolExpr &e) override { m_row = {label("BoolExpr", e.value ? "true" : "false"), {}}; }
         void visit(StringExpr &e) override { m_row = {label("StringExpr", e.value), {}}; }
+        void visit(NullExpr &) override { m_row = {label("NullExpr"), {}}; }
 
         void visit(BinaryExpr &e) override {
             Row r{label("BinaryExpr", e.op), {}};

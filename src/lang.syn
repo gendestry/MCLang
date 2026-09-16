@@ -29,8 +29,8 @@ n_mulexpr   : (MUL | DIV) mulexpr n_mulexpr? ;
 
 mulexpr     : unaryexpr ;
 unaryexpr   : NOT unaryexpr | MUL unaryexpr | AMP unaryexpr | accessexpr ;
-accessexpr  : atom ((DOT IDENTIFIER) | (LBRACKET expr RBRACKET))* ;
-atom        : NUM | STRING_LIT | TRUE | FALSE | group | funcall | namedexpr;
+accessexpr  : atom ((DOT IDENTIFIER) | (ARROW IDENTIFIER) | (LBRACKET expr RBRACKET))* ;
+atom        : NUM | STRING_LIT | TRUE | FALSE | NULL | group | funcall | namedexpr;
 namedexpr   : IDENTIFIER;
 funcall     : IDENTIFIER LPAREN (arg (COMMA arg)*)? RPAREN;
 arg         : expr;

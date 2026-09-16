@@ -75,6 +75,7 @@ namespace Basic {
         void visit(NumberExpr &e) override;
         void visit(BoolExpr &e) override;
         void visit(StringExpr &e) override;
+        void visit(NullExpr &e) override;
         void visit(BinaryExpr &e) override;
         void visit(UnaryExpr &e) override;
         void visit(CallExpr &e) override;
@@ -106,6 +107,13 @@ namespace Basic {
         ImcStmtPtr gen(const StmtPtr &s); // a missing statement is an empty STMTS
 
         ImcExprPtr shortCircuit(BinaryExpr &e);
+        // Code for a value going where a `target` goes (null: an operand). An array
+        // becomes the address of its first element unless the target is an array
+        // too, which copies it whole.
+        ImcExprPtr genValue(const ExprPtr &e, const Type *target);
+        // A PointerType to `elem`, for pointers no declaration spells out: &x,
+        // p + n, an array used as a pointer. Owned here, so it outlives the walk.
+        const Type *pointerTo(const Type *elem);
         // cmd("...", ...) -> the CMD statement that emits it, keeping its success or
         // result in `dst` when there is one.
         ImcStmtPtr genCommand(CallExpr &call, ImcCMD::Store store, std::optional<ImcTemp> dst);
@@ -142,6 +150,8 @@ namespace Basic {
         // ---- state while a function body is being generated ----
         const MemFrame *m_frame = nullptr; // null at global level
         const ImcLabel *m_exit = nullptr;
+        const FunDecl *m_fun = nullptr; // for the type a `return` goes to
+        std::vector<TypePtr> m_madeTypes; // what pointerTo() made
 
         std::vector<std::string> m_errors;
         bool m_print = false;

@@ -97,6 +97,53 @@ namespace Basic {
         return std::move(m_stmt);
     }
 
+    namespace {
+        TypePtr cloneType(const Type *type) {
+            if (const auto *atomic = dynamic_cast<const AtomicType *>(type)) {
+                auto t = std::make_unique<AtomicType>();
+                t->prim = atomic->prim;
+                return t;
+            }
+            if (const auto *named = dynamic_cast<const NamedType *>(type)) {
+                auto t = std::make_unique<NamedType>();
+                t->name = named->name;
+                return t;
+            }
+            if (const auto *array = dynamic_cast<const ArrayType *>(type)) {
+                auto t = std::make_unique<ArrayType>();
+                t->elem = cloneType(array->elem.get());
+                t->length = array->length;
+                return t;
+            }
+            if (const auto *pointer = dynamic_cast<const PointerType *>(type)) {
+                auto t = std::make_unique<PointerType>();
+                t->elem = cloneType(pointer->elem.get());
+                return t;
+            }
+            // Untyped (a plain one-slot value): a float stands in, it has the same size.
+            auto t = std::make_unique<AtomicType>();
+            t->prim = "float";
+            return t;
+        }
+    }
+
+    const Type *ImcGen::pointerTo(const Type *elem) {
+        auto t = std::make_unique<PointerType>();
+        t->elem = cloneType(elem);
+        return m_madeTypes.emplace_back(std::move(t)).get();
+    }
+
+    ImcExprPtr ImcGen::genValue(const ExprPtr &e, const Type *target) {
+        ImcExprPtr value = gen(e);
+        const auto *array = dynamic_cast<const ArrayType *>(m_type);
+        if (!array || dynamic_cast<const ArrayType *>(target))
+            return value;
+        const Type *pointer = pointerTo(array->elem.get());
+        value = addressOf(std::move(value));
+        m_type = pointer;
+        return value;
+    }
+
     ImcExprPtr ImcGen::failed(const std::string &message) {
         error(message);
         m_type = nullptr;
@@ -168,6 +215,13 @@ namespace Basic {
         m_type = nullptr;
     }
 
+    // Address 0: no variable ever lives there -- globals start at DATA_START and
+    // the stack is far above it.
+    void ImcGen::visit(NullExpr &) {
+        m_expr = constant(0);
+        m_type = nullptr;
+    }
+
     void ImcGen::visit(BinaryExpr &e) {
         if (e.op == "&&" || e.op == "||") {
             m_expr = shortCircuit(e);
@@ -180,10 +234,38 @@ namespace Basic {
             m_expr = failed("ImcGen: unknown binary operator '" + e.op + "'");
             return;
         }
-        ImcExprPtr lhs = gen(e.lhs);
-        ImcExprPtr rhs = gen(e.rhs);
-        m_expr = std::make_unique<ImcBINOP>(oper, std::move(lhs), std::move(rhs));
+        ImcExprPtr lhs = genValue(e.lhs, nullptr);
+        const auto *lp = dynamic_cast<const PointerType *>(m_type);
+        const Type *lt = m_type;
+        ImcExprPtr rhs = genValue(e.rhs, nullptr);
+        const auto *rp = dynamic_cast<const PointerType *>(m_type);
+        const Type *rt = m_type;
         m_type = nullptr;
+
+        // Pointer arithmetic counts elements, so the number is scaled by the
+        // element's size: p + n is p + n * size, and p - q is (p - q) / size.
+        auto scaled = [&](ImcExprPtr n, const PointerType *p) -> ImcExprPtr {
+            return std::make_unique<ImcBINOP>(ImcBINOP::Oper::MUL, std::move(n),
+                                              constant(static_cast<double>(sizeOf(p->elem.get()))));
+        };
+        if (oper == ImcBINOP::Oper::ADD && (lp != nullptr) != (rp != nullptr)) {
+            m_expr = lp ? plus(std::move(lhs), scaled(std::move(rhs), lp))
+                        : plus(scaled(std::move(lhs), rp), std::move(rhs));
+            m_type = lp ? lt : rt;
+            return;
+        }
+        if (oper == ImcBINOP::Oper::SUB && lp && !rp) {
+            m_expr = std::make_unique<ImcBINOP>(ImcBINOP::Oper::SUB, std::move(lhs), scaled(std::move(rhs), lp));
+            m_type = lt;
+            return;
+        }
+        if (oper == ImcBINOP::Oper::SUB && lp && rp) {
+            m_expr = std::make_unique<ImcBINOP>(
+                ImcBINOP::Oper::DIV, std::make_unique<ImcBINOP>(ImcBINOP::Oper::SUB, std::move(lhs), std::move(rhs)),
+                constant(static_cast<double>(sizeOf(lp->elem.get()))));
+            return;
+        }
+        m_expr = std::make_unique<ImcBINOP>(oper, std::move(lhs), std::move(rhs));
     }
 
     //  result <- lhs
@@ -237,9 +319,10 @@ namespace Basic {
         call->addArg(0, SLOT_SIZE, frameBase(frame->depth - 1));
 
         std::size_t offset = SLOT_SIZE;
-        for (const ExprPtr &a : e.args) {
-            ImcExprPtr arg = gen(a);
-            const std::size_t size = sizeOf(m_type); // a `&x` argument has no type: one slot
+        for (std::size_t i = 0; i < e.args.size(); ++i) {
+            const Type *param = i < fun->params.size() ? fun->params[i].type.get() : nullptr;
+            ImcExprPtr arg = genValue(e.args[i], param);
+            const std::size_t size = sizeOf(param); // what the callee's frame holds
             call->addArg(offset, size, std::move(arg));
             offset += size;
         }
@@ -307,7 +390,7 @@ namespace Basic {
     // first -- except *&x, which is just x.
     void ImcGen::visit(AddressExpr &e) {
         m_expr = addressOf(gen(e.operand));
-        m_type = nullptr;
+        m_type = pointerTo(m_type);
     }
 
     void ImcGen::visit(DerefExpr &e) {
@@ -315,7 +398,7 @@ namespace Basic {
             m_expr = gen(address->operand);
             return;
         }
-        ImcExprPtr pointer = gen(e.operand);
+        ImcExprPtr pointer = genValue(e.operand, nullptr); // *a is a[0]
         const auto *type = dynamic_cast<const PointerType *>(m_type);
         if (!type) {
             m_expr = failed("ImcGen: dereferencing something that is not a pointer");
@@ -368,14 +451,16 @@ namespace Basic {
     void ImcGen::visit(ReturnStmt &s) {
         auto stmts = std::make_unique<ImcSTMTS>();
         if (s.expr)
-            stmts->add(std::make_unique<ImcMOVE>(std::make_unique<ImcTEMP>(ImcTemp::RV()), gen(s.expr)));
+            stmts->add(std::make_unique<ImcMOVE>(std::make_unique<ImcTEMP>(ImcTemp::RV()),
+                                                 genValue(s.expr, m_fun ? m_fun->returnType.get() : nullptr)));
         stmts->add(std::make_unique<ImcJUMP>(*m_exit));
         m_stmt = std::move(stmts);
     }
 
     void ImcGen::visit(AssignStmt &s) {
         ImcExprPtr dst = gen(s.target);
-        ImcExprPtr src = gen(s.value);
+        const Type *target = m_type;
+        ImcExprPtr src = genValue(s.value, target);
         m_stmt = std::make_unique<ImcMOVE>(std::move(dst), std::move(src));
     }
 
@@ -444,7 +529,7 @@ namespace Basic {
             return;
         }
         auto dst = std::make_unique<ImcMEM>(addressOf(*access), sizeOf(d.type.get()));
-        m_stmt = std::make_unique<ImcMOVE>(std::move(dst), gen(d.init));
+        m_stmt = std::make_unique<ImcMOVE>(std::move(dst), genValue(d.init, d.type.get()));
     }
 
     void ImcGen::visit(FunDecl &d) {
@@ -463,11 +548,14 @@ namespace Basic {
 
         const MemFrame *outerFrame = m_frame;
         const ImcLabel *outerExit = m_exit;
+        const FunDecl *outerFun = m_fun;
         m_frame = frame;
         m_exit = &exit;
+        m_fun = &d;
         ImcStmtPtr body = gen(d.body);
         m_frame = outerFrame;
         m_exit = outerExit;
+        m_fun = outerFun;
 
         if (m_print) {
             print(dimText("function ") + nameText(d.name) + dimText(" entry " + entry.name + ", exit " + exit.name));
