@@ -40,6 +40,7 @@ namespace Basic {
 
         const std::vector<LinDataChunk> &dataChunks() const { return m_data; }
         const std::vector<LinCodeChunk> &codeChunks() const { return m_code; }
+        std::vector<LinCodeChunk> &codeChunks() { return m_code; } // for the linear optimizations
 
         // Print mode: emit each chunk as it is added.
         void setPrint(bool on) { m_print = on; }

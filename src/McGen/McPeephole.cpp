@@ -124,11 +124,14 @@ namespace Basic {
             for (std::size_t j = i + 1; j < lines.size(); ++j) {
                 if (isComment(lines[j]))
                     continue;
-                if (isCall(lines[j]))
-                    return false;
                 const Tokens t = split(lines[j]);
-                if (!mentions(t, x))
+                // The line reading X may still run a function after it (`... run
+                // return run function`): X is read first. A call before it may not.
+                if (!mentions(t, x)) {
+                    if (isCall(lines[j]))
+                        return false;
                     continue;
+                }
                 if (mentions(t, x) != 1 || !dead(lines, j + 1, x))
                     return false;
 
@@ -174,7 +177,11 @@ namespace Basic {
                 if (isCall(lines[k]) || isReturn(lines[k]))
                     return false;
                 const Tokens t = split(lines[k]);
-                if (mentions(t, y))
+                // `X = Y` itself may name Y: Y still holds that value when X starts
+                // out as it, so renaming leaves a `Y = Y` for noOp to delete.
+                const bool copiesY = t.size() == 8 && isScoreboard(t, "operation") && t[3] == x && t[5] == "="
+                                     && t[6] == y;
+                if (mentions(t, y) && !copiesY)
                     return false;
                 if (!defines(t, x))
                     continue;

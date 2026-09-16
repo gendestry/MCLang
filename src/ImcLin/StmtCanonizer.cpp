@@ -10,6 +10,7 @@
 #include "ImcGen/data/expr/ImcMEM.h"
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -65,6 +66,16 @@ namespace Basic {
 
         ImcExprPtr expr = exprs.canonize(*s.expr);
         m_out.push_back(std::make_unique<ImcESTMT>(std::move(expr)));
+    }
+
+    // Every value goes to a temp first, so a call inside one of them cannot
+    // disturb another that was already worked out.
+    void StmtCanonizer::visit(ImcCMD &s) {
+        ExprCanonizer exprs(m_out);
+        auto flat = std::make_unique<ImcCMD>(s.text);
+        for (ImcExprPtr &arg : s.args)
+            flat->addArg(exprs.toTemp(*arg));
+        m_out.push_back(std::move(flat));
     }
 
     void StmtCanonizer::visit(ImcJUMP &s) { m_out.push_back(std::make_unique<ImcJUMP>(s.label)); }

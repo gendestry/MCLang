@@ -1,5 +1,6 @@
 // #include "Syntax/Engine.h"
 // #include "Syntax/GrammarParser.h"
+#include <algorithm>
 #include <iostream>
 #include "LangAst.h"
 #include "AstBuilder.h"
@@ -10,6 +11,9 @@
 #include "ImcGen/ImcGen.h"
 #include "ImcLin/ImcLin.h"
 #include "ImcOpt/ConstantFolder.h"
+#include "ImcOpt/Inliner.h"
+#include "ImcOpt/LinearPasses.h"
+#include "ImcOpt/Promoter.h"
 #include "ImcLin/Interpreter.h"
 #include "McGen/McGen.h"
 
@@ -119,14 +123,25 @@ int main(int argc, char** argv) {
 
     logger.info("Intermediate code OK");
 
-    // 7b. Optimize the trees: fold constants and drop identities like x + 0.
+    // 7b. Optimize the trees: keep plain variables in temps, fold constants,
+    // inline small functions, then fold what inlining exposed.
     if (optimize) {
+        std::size_t promoted = 0;
+        for (Basic::ImcGen::Function &f : imcGen.functions())
+            promoted += Basic::Promoter::run(f.body);
+
         Basic::ConstantFolder folder;
         folder.setPrint(printNames);
         std::size_t rewrites = 0;
         for (Basic::ImcGen::Function &f : imcGen.functions())
             rewrites += folder.run(f.frame->label, f.body);
-        logger.info("Constant folding OK ({} rewrite(s))", rewrites);
+
+        const std::size_t inlined = Basic::Inliner::run(imcGen.functions());
+        folder.setPrint(false);
+        for (Basic::ImcGen::Function &f : imcGen.functions())
+            rewrites += folder.run(f.frame->label, f.body);
+        logger.info("Tree optimizations OK ({} variable(s) promoted, {} rewrite(s), {} call(s) inlined)",
+                    promoted, rewrites, inlined);
     }
 
     // 8. Linearize: data for globals and strings, a flat statement list per function.
@@ -136,19 +151,36 @@ int main(int argc, char** argv) {
 
     logger.info("Linearization OK");
 
-    // 9. Run it: interpret the linearized code, starting at main.
-    Basic::Interpreter interpreter(imcLin);
-    interpreter.setPrint(printNames); // --print shows every global's final value
-    try {
-        const double result = interpreter.run("main");
-        logger.info("main returned {}", result);
-    } catch (const std::exception &e) {
-        logger.error("Runtime error: {}", e.what());
-        return 1;
+    // 8b. Optimize the flat code: CSE, copy propagation, dead code, loop-invariant
+    // code motion and jump threading, until none of them changes anything.
+    if (optimize) {
+        std::size_t changes = 0;
+        for (Basic::LinCodeChunk &chunk : imcLin.codeChunks())
+            changes += Basic::LinOptimizer::run(chunk);
+        logger.info("Linear optimizations OK ({} change(s))", changes);
+    }
+
+    // 9. Run it: interpret the linearized code, starting at main. A program
+    // without main is a library of entry points, run from the game instead.
+    const bool hasMain = std::ranges::any_of(imcLin.codeChunks(), [](const Basic::LinCodeChunk &chunk) {
+        return chunk.frame->label == "main";
+    });
+    if (hasMain) {
+        Basic::Interpreter interpreter(imcLin);
+        interpreter.setPrint(printNames); // --print shows every global's final value
+        try {
+            const double result = interpreter.run("main");
+            logger.info("main returned {}", result);
+        } catch (const std::exception &e) {
+            logger.error("Runtime error: {}", e.what());
+            return 1;
+        }
+    } else {
+        logger.info("No main, so nothing to interpret");
     }
 
     // 10. Generate the Minecraft datapack from the linearized code.
-    Basic::McGen mcGen(imcLin);
+    Basic::McGen mcGen(imcLin, program, memory);
     mcGen.setPrint(printNames); // --print lists every function written
     mcGen.setOptimize(optimize);
     if (!mcGen.generate("datapack")) {

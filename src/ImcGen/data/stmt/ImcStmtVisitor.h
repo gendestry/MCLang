@@ -10,11 +10,13 @@ namespace Basic {
     struct ImcCJUMP;
     struct ImcLABEL;
     struct ImcSTMTS;
+    struct ImcCMD;
 
     struct ImcStmtVisitor {
         virtual ~ImcStmtVisitor() = default;
         virtual void visit(ImcMOVE &) = 0;
         virtual void visit(ImcESTMT &) = 0;
+        virtual void visit(ImcCMD &) = 0;
         virtual void visit(ImcJUMP &) = 0;
         virtual void visit(ImcCJUMP &) = 0;
         virtual void visit(ImcLABEL &) = 0;

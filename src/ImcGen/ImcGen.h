@@ -25,6 +25,7 @@
 
 #include "LangAst.h"
 #include "Mem.h"
+#include "Resolver.h" // CMD_BUILTIN
 #include "ImcGen/data/expr/ImcExpr.h"
 #include "ImcGen/data/names/ImcLabel.h"
 #include "ImcGen/data/stmt/ImcStmt.h"
@@ -102,6 +103,8 @@ namespace Basic {
         ImcStmtPtr gen(const StmtPtr &s); // a missing statement is an empty STMTS
 
         ImcExprPtr shortCircuit(BinaryExpr &e);
+        // cmd("...", ...) -> the CMD statement that emits it.
+        ImcStmtPtr genCommand(CallExpr &call);
 
         // FP of the frame at static depth `depth`, reached from the current frame
         // through the static links.

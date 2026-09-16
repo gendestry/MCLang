@@ -19,6 +19,7 @@
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/expr/ImcUNOP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -341,6 +342,23 @@ namespace Basic {
     }
 
     void Interpreter::visit(ImcESTMT &s) { eval(*s.expr); }
+    // There is no server to run it against, so the command is printed with its
+    // holes filled in -- enough to check that the values reaching it are right.
+    void Interpreter::visit(ImcCMD &s) {
+        std::string out;
+        std::size_t arg = 0;
+        for (std::size_t i = 0; i < s.text.size(); ++i) {
+            if (s.text[i] == '{' && i + 1 < s.text.size() && s.text[i + 1] == '}') {
+                out += arg < s.args.size() ? number(eval(*s.args[arg])) : "{}";
+                ++arg;
+                ++i;
+                continue;
+            }
+            out += s.text[i];
+        }
+        std::cout << std::string((m_depth + 1) * 2, ' ') << dimText("/") << out << std::endl;
+    }
+
     void Interpreter::visit(ImcJUMP &s) { m_jump = s.label.name; }
     void Interpreter::visit(ImcCJUMP &s) { m_jump = eval(*s.cond) != 0 ? s.pos.name : s.neg.name; }
     void Interpreter::visit(ImcLABEL &) {}

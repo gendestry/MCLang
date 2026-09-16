@@ -17,6 +17,7 @@
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/expr/ImcUNOP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -214,6 +215,11 @@ namespace Basic {
     }
 
     void ImcGen::visit(CallExpr &e) {
+        if (e.callee == CMD_BUILTIN) {
+            m_expr = failed("cmd(...) is a statement on its own, not a value");
+            return;
+        }
+
         const FunDecl *fun = m_resolver.declOf(&e);
         const MemFrame *frame = fun ? m_memory.frameOf(fun) : nullptr;
         if (!frame) {
@@ -313,7 +319,30 @@ namespace Basic {
             s.decl->accept(*this); // VarDecl leaves its initialisation in m_stmt
     }
 
-    void ImcGen::visit(ExprStmt &s) { m_stmt = std::make_unique<ImcESTMT>(gen(s.expr)); }
+    void ImcGen::visit(ExprStmt &s) {
+        // A command is the one call that becomes a statement of its own.
+        if (auto *call = dynamic_cast<CallExpr *>(s.expr.get()); call && call->callee == CMD_BUILTIN) {
+            m_stmt = genCommand(*call);
+            return;
+        }
+        m_stmt = std::make_unique<ImcESTMT>(gen(s.expr));
+    }
+
+    // TypeResolver has already checked the shape; anything still wrong here means
+    // the program failed to type check, so keep quiet and generate nothing.
+    ImcStmtPtr ImcGen::genCommand(CallExpr &call) {
+        const auto *text = call.args.empty() ? nullptr
+                                             : dynamic_cast<const StringExpr *>(call.args[0].get());
+        if (!text) {
+            error("ImcGen: cmd() without a literal command");
+            return std::make_unique<ImcSTMTS>();
+        }
+
+        auto cmd = std::make_unique<ImcCMD>(text->value);
+        for (std::size_t i = 1; i < call.args.size(); ++i)
+            cmd->addArg(gen(call.args[i]));
+        return cmd;
+    }
 
     void ImcGen::visit(ReturnStmt &s) {
         auto stmts = std::make_unique<ImcSTMTS>();

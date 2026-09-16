@@ -23,6 +23,10 @@
 #include "LangAst.h"
 
 namespace Basic {
+    // The one built-in "function": cmd("setblock {} {} {} stone", x, y, z) emits
+    // the command as written, with each `{}` replaced by an argument's value.
+    inline constexpr const char *CMD_BUILTIN = "cmd";
+
     class Resolver : public TypeVisitor,
                      public ExprVisitor,
                      public StmtVisitor,

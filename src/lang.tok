@@ -5,6 +5,8 @@
 
 # ---- literals ----------------------------------------------------------------
 NUM = (?:[1-9][0-9]*|0)(?:\.[0-9]+)?
+# A string literal keeps its quotes; AstBuilder strips them.
+STRING_LIT = "[^"\n]*"
 
 # ---- keywords ----------------------------------------------------------------
 # \b keeps keywords from matching the start of identifiers such as "integer".
@@ -17,6 +19,7 @@ ELSE = else\b
 TRUE = true\b
 FALSE = false\b
 
+STRING = string\b
 FLOAT = float\b
 CHAR = char\b
 VOID = void\b

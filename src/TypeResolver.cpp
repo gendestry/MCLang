@@ -8,6 +8,8 @@
 
 #include "TypeResolver.h"
 
+#include "Resolver.h" // CMD_BUILTIN
+
 #include <iostream>
 
 #include "Utils/Colors/Font.h"
@@ -285,6 +287,13 @@ namespace Basic {
         for (const ExprPtr &a : e.args)
             args.push_back(typeOf(a));
 
+        if (e.callee == CMD_BUILTIN) {
+            checkCommand(e, args);
+            m_result = makeVoid();
+            print(dimText("command ") + nameText(e.callee) + dimText(" : ") + typeText(m_result.name()));
+            return;
+        }
+
         auto it = m_functions.find(e.callee);
         if (it == m_functions.end()) {
             m_result = makeError(); // Resolver already reported the unknown name
@@ -304,6 +313,34 @@ namespace Basic {
 
         m_result = sig.ret;
         print(dimText("call ") + nameText(e.callee) + dimText(" : ") + typeText(m_result.name()));
+    }
+
+    // cmd's first argument is the command itself and has to be written out as a
+    // literal -- it becomes part of the generated datapack, so there is nothing
+    // to run later that could produce it. The rest fill in its `{}` holes.
+    void TypeResolver::checkCommand(const CallExpr &e, const std::vector<Ty> &args) {
+        if (args.empty()) {
+            error("cmd() needs a command, as in cmd(\"say hi\")");
+            return;
+        }
+        const auto *text = dynamic_cast<const StringExpr *>(e.args[0].get());
+        if (!text) {
+            error("the command passed to cmd() must be a string literal");
+            return;
+        }
+        for (std::size_t i = 1; i < args.size(); ++i)
+            if (!makeFloat().accepts(args[i]))
+                error("argument " + std::to_string(i + 1) + " of cmd() expects float, got "
+                      + args[i].name());
+
+        std::size_t holes = 0;
+        for (std::size_t i = 0; i + 1 < text->value.size(); ++i)
+            if (text->value[i] == '{' && text->value[i + 1] == '}')
+                ++holes, ++i;
+        if (holes != args.size() - 1)
+            error("the command '" + text->value + "' has " + std::to_string(holes)
+                  + " '{}' hole(s), but " + std::to_string(args.size() - 1)
+                  + " value(s) were given");
     }
 
     void TypeResolver::visit(NamedExpr &e) {

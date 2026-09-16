@@ -152,6 +152,14 @@ namespace Basic {
     void Resolver::visit(UnaryExpr &e) { walk(e.operand); }
 
     void Resolver::visit(CallExpr &e) {
+        // cmd("...") is built in: it names no declaration, so there is nothing
+        // to look up -- only its arguments are ordinary expressions.
+        if (e.callee == CMD_BUILTIN) {
+            print(dimText("builtin ") + nameText(e.callee));
+            for (const ExprPtr &a : e.args)
+                walk(a);
+            return;
+        }
         if (const Entry *fun = use(e.callee, Kind::Fun, "function"))
             m_calls[&e] = fun->fun;
         for (const ExprPtr &a : e.args)

@@ -17,6 +17,7 @@ namespace Basic {
 
         void visit(ImcMOVE &s) override;
         void visit(ImcESTMT &s) override;
+        void visit(ImcCMD &s) override;
         void visit(ImcJUMP &s) override;
         void visit(ImcCJUMP &s) override;
         void visit(ImcLABEL &s) override;

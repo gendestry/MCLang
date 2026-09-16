@@ -5,7 +5,12 @@ to cut is **command count**: every command costs tick time and counts toward the
 65,536-command limit.
 
 ```
-ImcGen → [tree passes] → ImcLin → [linear passes] → Interpreter / McGen (+ peephole)
+ImcGen → Promoter → ConstantFolder → Inliner → ConstantFolder          (tree passes, step 7b)
+       → ImcLin
+       → LinOptimizer: fold, CSE, copy propagation, dead code,
+                       loop-invariant motion, jump threading — until nothing changes (step 8b)
+       → Interpreter / McGen (liveness-based saves, strength reduction,
+                              comparison jumps, cmd arguments, peephole)
 ```
 
 - **Tree passes** run on ImcGen's statement trees, where an expression like
@@ -27,11 +32,35 @@ command count of the generated datapack.
 | 1 | Constant folding and algebraic simplification | tree, before ImcLin | **done** (`ConstantFolder`) |
 | 2 | Peephole rules in McGen | inside McGen | **done** (`McPeephole`) |
 | 3 | Saving only the temps needed after a call (liveness analysis) | linear, used by McGen | **done** (`Liveness`) |
-| 4 | Copy propagation and dead code elimination | linear | planned |
-| 5 | Jump threading and block merging | linear | planned |
-| 6 | Common subexpression elimination | linear | planned |
+| 4 | Copy propagation and dead code elimination | linear | **done** (`CopyPropagation`, `DeadCode`) |
+| 5 | Jump threading and block merging | linear | **done** (`JumpThreading`) |
+| 6 | Common subexpression elimination | linear | **done** (`CommonSubexpr`) |
+| 7 | Register promotion: plain variables in temps | tree, before folding | **done** (`Promoter`) |
+| 8 | Inlining small leaf functions | tree, after promotion | **done** (`Inliner`) |
+| 9 | Loop-invariant code motion | linear | **done** (`LoopInvariant`) |
+| 10 | McGen code generation: strength reduction, comparison jumps, `cmd` arguments | inside McGen | **done** |
 
-The suggested order goes from the largest win for the least work to the smallest.
+All linear passes are in `src/ImcOpt/LinearPasses.{h,cpp}`, one class each, driven
+by `LinOptimizer`. Shared helpers: `ImcWalk.h` (looking into and rewriting
+expressions, control-flow facts) and `ImcClone.{h,cpp}` (deep copies, with renaming
+for the inliner).
+
+## Results, everything on
+
+Every program returns the same value in the interpreter and in the simulated
+datapack with `optimize` on and off, and runs the same raw commands (`setblock`
+positions compared line by line).
+
+| Program | Commands, off → on | Executed, off → on |
+|---------|--------------------|--------------------|
+| records, `&` parameter, calls | 391 → 209 | 496 → 230 |
+| constants / `if` | 237 → 51 | 274 → 36 |
+| loop + recursion (`fact`) | 492 → 180 | 2442 → 707 |
+| `fib` + helper in a loop | 517 → 208 | 16159 → 6037 |
+| nested loops, records, inlining, CSE, `cmd` | 1469 → 386 | 11625 → 1642 |
+| `grid {w:4,h:3}` | 221 → 52 | 1603 → 229 |
+
+`grid` costs 7 commands per block placed, down from about 115.
 
 ---
 
@@ -79,10 +108,9 @@ MOVE(T5, MUL(CONST(1), CONST(32)))  ->  MOVE(T5, CONST(32))
 MOVE(T6, ADD(TEMP(FP), TEMP(T5)))   // stuck: the folder can't see that T5 is 32
 ```
 
-Finishing the job there would also need constant propagation. Offset merging gets
-stuck the same way. Once propagation exists (pass 4), the folder can run again
-after ImcLin, inside the repeat-until-nothing-changes loop; the rules can be
-shared.
+Finishing the job there also needs constant propagation. That now exists (pass 4),
+so `LinOptimizer` runs the same folder over every linear statement in its loop:
+once `T5` is propagated as 32, `ADD(TEMP(FP), CONST(32))` is there to fold.
 
 ### Code walkthrough
 
@@ -364,27 +392,178 @@ same value with `optimize` on and off.
 
 The recursive `fib` shows the biggest runtime win: it executes 45% fewer commands.
 
-## 4. Copy propagation and dead code elimination — planned
+## The linear passes (4, 5, 6, 9)
 
-- **Copy propagation:** after `MOVE(T6, ADD(FP, 8))`, use the value directly where
-  `T6` is only read, instead of going through the temp.
-- **Dead code elimination:** remove moves to temps that are never read, plus code
-  after an unconditional jump that no label reaches (for example, what
-  `ConstantFolder` leaves after turning a CJUMP into a JUMP).
+`LinOptimizer::run` (step 8b in `main.cpp`) repeats, on each code chunk, until a
+whole round changes nothing (with a cap of 32 rounds as a safety net):
 
-These feed each other: folding creates copies to propagate, and propagating leaves
-dead temps. Run all passes in a loop until none changes anything.
+1. `ConstantFolder` on each statement
+2. `CommonSubexpr`
+3. `CopyPropagation`
+4. `DeadCode`
+5. `LoopInvariant`
+6. `JumpThreading`
 
-## 5. Jump threading and block merging — planned
+They feed each other. CSE turns a computation into a copy, copy propagation makes
+the copy unused, dead code removes it; a propagated constant lets the folder turn
+a CJUMP into a JUMP, which leaves unreachable code and a label nobody jumps to.
 
-- A JUMP to a label whose only statement is another JUMP goes straight to the
-  final target.
-- Delete labels nobody jumps to, and merge blocks that are only entered by falling
-  through.
+Two facts make these passes simple:
 
-Fewer `.mcfunction` calls.
+- **Only a MOVE changes a temp.** In intermediate code, temps belong to one call; a
+  call can't touch its caller's temps. (In the datapack scoreboards are global, but
+  McGen saves whatever a call could clobber — pass 3.)
+- **Blocks start at labels.** A fact that holds within a block is dropped at every
+  label, because another block may jump there. Only liveness and loop-invariant
+  motion look across blocks.
 
-## 6. Common subexpression elimination — planned
+### 4a. Copy propagation (`CopyPropagation`)
 
-Computing `FP+8` twice in one function: compute it once and reuse it. Saves memory
-loads, but it is the most work for the least gain here, so it comes last.
+After `MOVE(a, b)`, `MOVE(a, CONST)` or `MOVE(a, NAME)`, later reads of `a` in the
+same block read the value directly, until `a` or `b` is written again. RV is never
+propagated, since every call changes it.
+
+### 4b. Dead code elimination (`DeadCode`)
+
+- Statements after a JUMP or CJUMP, before the next label: never reached.
+- `MOVE(t, E)` where `t` isn't live afterwards (from `Liveness`): removed, or turned
+  into `ESTMT(call)` when E is a call, so the call still runs.
+- `ESTMT(E)` with no call in E: removed.
+
+It repeats until nothing changes, since removing one move can make the moves that
+fed it dead.
+
+### 5. Jump threading and block merging (`JumpThreading`)
+
+In the datapack every label is a `.mcfunction` and every jump a function call, so
+removed labels and jumps are fewer files and fewer calls.
+
+- **Threading:** a jump to a label whose block is only `JUMP M` goes to `M`
+  directly (chains are followed; a loop of empty jumps stops inside the loop).
+  This removes the `LABEL fall; JUMP neg` that ImcLin puts after every CJUMP.
+- **CJUMP simplification:** `CJUMP(CONST, a, b)` and `CJUMP(x, a, a)` become JUMPs.
+- **Fall-through jumps:** `JUMP L` directly followed by `LABEL L` is dropped.
+- **Unused labels:** a label nobody jumps to is dropped. If the block before falls
+  into it, the two blocks merge; if not, the block is unreachable and goes too.
+  The entry label always stays: it's where the prologue calls in.
+
+### 6. Common subexpression elimination (`CommonSubexpr`)
+
+Within a block, `MOVE(a, E)` becomes `MOVE(a, b)` when an earlier `MOVE(b, E)` is
+still valid. Expressions are compared by their printed form. An entry is dropped
+when a temp it reads, or `b`, is written; an entry that reads memory is also
+dropped at anything that may write memory: a store, a call, or a `cmd` (a raw
+command can run `data modify`).
+
+In the test program `(i + j) * 3.0 + (i + j) * 3.0` becomes one `MUL` and `T41 + T41`.
+
+### 9. Loop-invariant code motion (`LoopInvariant`)
+
+A loop is what ImcGen makes of `while` and `for`: `LABEL top`, a body, and a
+`JUMP top` further down. `MOVE(t, E)` moves in front of the loop when all of these
+hold:
+
+- **The loop is closed:** nothing outside jumps to a label inside it, and it's
+  entered by falling into `top`, so "in front" is a place every entry passes.
+- **E is invariant:** no temp it reads is written in the loop; if it reads memory,
+  nothing in the loop may write memory.
+- **E can't fail or act:** no call, and no DIV or MOD (a division by zero that
+  would never have run must not run now).
+- **t is written only there,** and **t isn't live at `top`**. The second covers a
+  loop that runs zero times: no path from `top` reads the value `t` had before.
+
+It hoists one statement at a time and starts over, so a hoisted statement can
+leave an inner loop and then the outer one.
+
+## 7. Register promotion (`Promoter`)
+
+The biggest single win. Every local and parameter used to live in
+`storage mcl:mem`, so each read cost 6 commands and a macro call, and each write
+the same. Now a variable that is only read and written gets a temp: one scoreboard
+entry.
+
+Runs first on the trees, when a variable is still spelled exactly as ImcGen wrote
+it, `MEM8(ADD(TEMP(FP), CONST(offset)))`. A frame slot is promoted when **every**
+mention of `ADD(TEMP(FP), CONST(offset))` is directly inside a one-slot MEM.
+Anything else keeps it in memory:
+
+- `&x` passes `ADD(FP, offset)` itself
+- a record or array is read as a wider MEM, or through `ADD(ADD(FP, offset), ...)`
+
+(Promoting a `&T` parameter is fine: the slot holds the address, and that address
+is what the temp holds; `*v` stays a MEM.)
+
+Every `MEM8(ADD(FP, offset))` becomes `TEMP(t)`, and the body gets, in front:
+
+- `MOVE(t, MEM8(ADD(FP, offset)))` for a parameter (offset > 0): loaded once
+- `MOVE(t, CONST(0))` for a local: a temp read before it's written would be an
+  error in the interpreter. Dead code elimination removes it when the variable is
+  always assigned first, which is almost always.
+
+Safe because a local is only reachable from its own function: the language has no
+nested functions (which would reach outer locals through the static link), and
+temps are saved across recursive calls by pass 3. `ExprCanonizer` still doesn't
+park temps before a call in the same expression; that stays correct because a call
+can't change its caller's temps.
+
+## 8. Inlining (`Inliner`)
+
+A call costs the argument stores, the prologue and the epilogue — around 15
+commands before the body starts — so a small function is cheaper copied in.
+Runs after promotion and folding, then the folder runs again.
+
+A function is inlined when it:
+
+- **is a leaf:** calls nothing, so it isn't recursive
+- **has no memory left:** every parameter was promoted, and nothing but
+  Promoter's loads mentions FP
+- **is small:** at most `Inliner::MAX_NODES` (80) nodes
+- **takes only one-slot arguments** at that call
+
+`CALL(f, args)` becomes
+
+```
+SEXPR(STMTS(MOVE(result, 0),
+            MOVE(a1, arg1), ...,            -- the arguments, in order
+            <body, copied with fresh temps and labels,
+             parameter p -> its argument temp, RV -> result, exit -> end>,
+            LABEL end),
+      TEMP(result))
+```
+
+`clone` with an `ImcRenaming` does the copying: a temp or label seen for the first
+time gets a fresh one, and the pre-seeded entries (parameters, RV, the exit label)
+win. The function itself stays: entry points and non-inlined callers use it.
+
+`clamp(v, lo, hi)` and `bump(&v, by)` in the test program are inlined; `dist2`
+takes records, so it isn't.
+
+## 10. McGen code generation
+
+All switched by `McGen::setOptimize`.
+
+- **Strength reduction** (`multiplyByWhole`): `x * k` and `x / k` for a whole
+  constant `k`. The general fixed-point multiply splits the product so it can't
+  overflow (7 commands); with `k` unscaled, `x * k` is exact in 3 commands
+  (`h = x; set c k; h *= c`), `x * 2` is `h = x; h += x`, and `x / k` is
+  `floor(x / k)` like the general code.
+- **Comparison jumps:** `CJUMP(LTH(a, b), L1, L2)` jumps on the comparison instead
+  of first computing 0 or 1000 and testing that — 2 commands instead of 4:
+
+  ```mcfunction
+  execute if score $T2 mcl < $T4 mcl run return run function mcl:fn/grid/l6
+  return run function mcl:fn/grid/l7
+  ```
+
+  With a constant operand the peephole pass turns it into `matches`; its constant
+  rule now also looks at a line that runs a function *after* reading the constant.
+- **`cmd` arguments:** a temp goes into `mcl:args` in one command,
+  `execute store result storage mcl:args a0 int 0.001 run scoreboard players get $T2 mcl`,
+  instead of copy, `/= #scale`, store. A constant is written as
+  `data modify storage mcl:args a0 set value 3`. `int 0.001` rounds toward zero,
+  where `/= #scale` rounds down: the results differ only for a negative number that
+  isn't whole (`-0.5` gives 0 instead of -1). Whole numbers are exact (checked for
+  every value in ±3,000,000).
+- **Peephole, compute in place:** `$e1 = $T2; add $e1 1000; $T2 = $e1` becomes
+  `add $T2 1000`. Rule 3 used to give up because the window mentions `$T2`; it now
+  allows the one mention in the defining `X = Y` line itself.

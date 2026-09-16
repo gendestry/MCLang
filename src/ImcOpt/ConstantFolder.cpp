@@ -17,6 +17,7 @@
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/expr/ImcUNOP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -205,6 +206,12 @@ namespace Basic {
     }
 
     void ConstantFolder::visit(ImcESTMT &s) { fold(s.expr); }
+
+    // The arguments fold; the command itself always stays, side effect and all.
+    void ConstantFolder::visit(ImcCMD &s) {
+        for (ImcExprPtr &arg : s.args)
+            fold(arg);
+    }
     void ConstantFolder::visit(ImcJUMP &) {}
     void ConstantFolder::visit(ImcLABEL &) {}
 

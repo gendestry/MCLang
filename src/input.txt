@@ -1,31 +1,50 @@
 // Exercises the whole language: records, member access, the operator
 // cascade, control flow and bool literals.
 
-record Point {
-  float x;
-  float y;
-};
+//record Point {
+//  float x;
+//  float y;
+//};
+//
+//record Segment {  // two endpoints and a flag
+//  Point head;
+//  Point tail;
+//  bool closed;
+//};
+//
+//float test(Segment s1, float v)
+//{
+//return s1.head.x + v;
+//}
+//
+//void add(&float v)
+//{
+//  v = v + 1.0;
+//}
 
-record Segment {  // two endpoints and a flag
-  Point head;
-  Point tail;
-  bool closed;
-};
+//float main() {
+//    Segment seg;
+//    float a = 3.0;
+//    add(&a);
+//    seg.head.x = test(seg, 3.5) + a;
+//    execute summon $x 0 0
+//
+//    // Raw Minecraft commands: `{}` holes take the values that follow.
+//    cmd("say MCLang says hi");
+//    float y = 64.0;
+//    cmd("setblock 10 {} -3 stone", y);
+//    cmd("setblock {} {} {} diamond_block", a, y, a + 1.0);
+//
+//    return seg.head.x;
+//}
 
-float test(Segment s1, float v)
+void grid(float w, float h)
 {
-return s1.head.x + v;
-}
-
-void add(&float v)
-{
-  v = v + 1.0;
-}
-
-float main() {
-    Segment seg;
-    float a = 3.0;
-    add(&a);
-    seg.head.x = test(seg, 3.5) + a;
-    return seg.head.x;
+  for(float i = 0.0; i < h; i=i+1.0)
+  {
+    for(float j = 0.0; j < w; j=j+1.0)
+    {
+      cmd("setblock {} 100 {} diamond_block", j, i);
+    }
+  }
 }

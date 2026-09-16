@@ -19,6 +19,7 @@
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/expr/ImcUNOP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -84,6 +85,12 @@ namespace Basic {
         void visit(ImcESTMT &s) override {
             line("ESTMT");
             nested(*s.expr);
+        }
+
+        void visit(ImcCMD &s) override {
+            line("CMD", '"' + s.text + '"');
+            for (ImcExprPtr &arg : s.args)
+                nested(*arg);
         }
 
         void visit(ImcJUMP &s) override { line("JUMP", s.label.name); }

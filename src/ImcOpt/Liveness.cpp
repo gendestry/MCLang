@@ -14,6 +14,7 @@
 #include "ImcGen/data/expr/ImcTEMP.h"
 #include "ImcGen/data/expr/ImcUNOP.h"
 #include "ImcGen/data/stmt/ImcCJUMP.h"
+#include "ImcGen/data/stmt/ImcCMD.h"
 #include "ImcGen/data/stmt/ImcESTMT.h"
 #include "ImcGen/data/stmt/ImcJUMP.h"
 #include "ImcGen/data/stmt/ImcLABEL.h"
@@ -53,6 +54,9 @@ namespace Basic {
             collect(*move->src, out);
         } else if (const auto *estmt = dynamic_cast<const ImcESTMT *>(&stmt)) {
             collect(*estmt->expr, out);
+        } else if (const auto *cmd = dynamic_cast<const ImcCMD *>(&stmt)) {
+            for (const ImcExprPtr &arg : cmd->args)
+                collect(*arg, out);
         } else if (const auto *cjump = dynamic_cast<const ImcCJUMP *>(&stmt)) {
             collect(*cjump->cond, out);
         }

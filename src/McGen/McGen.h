@@ -23,8 +23,10 @@
 //      (`storage mcl:mem saved`), and the epilogue puts them back.
 //
 //  Output: <dir>/pack.mcmeta, the load tag, and data/mcl/function/ with `load`,
-//  `run` (call main and print what it returned), `rt/` (memory access) and
-//  `fn/<function>/` (the generated code).
+//  `run` (call main and print what it returned, when there is a main), `rt/`
+//  (memory access), `fn/<function>/` (the generated code) and an entry point
+//  per top-level function, run from the game with its arguments by name:
+//  `/function mcl:grid {w:5,h:3}`.
 
 #pragma once
 #include <cstddef>
@@ -34,16 +36,20 @@
 #include <unordered_map>
 #include <vector>
 
+#include "LangAst.h"
 #include "ImcGen/data/expr/ImcExpr.h"
 #include "ImcGen/data/stmt/ImcStmt.h"
 #include "ImcLin/data/LinCodeChunk.h"
 
 namespace Basic {
     class ImcLin;
+    class Memory;
 
     class McGen : public ImcExprVisitor, public ImcStmtVisitor {
     public:
-        explicit McGen(const ImcLin &lin) : m_lin(lin) {}
+        // `program` and `memory` give the parameters of each entry point.
+        McGen(const ImcLin &lin, const Program &program, const Memory &memory)
+            : m_lin(lin), m_program(program), m_memory(memory) {}
 
         // Generates the datapack and writes it under `outDir`, replacing any
         // previously generated code there. Returns false (and writes nothing)
@@ -73,6 +79,7 @@ namespace Basic {
         // ---- statements: each appends commands to the current block ----
         void visit(ImcMOVE &s) override;
         void visit(ImcESTMT &s) override;
+        void visit(ImcCMD &s) override;
         void visit(ImcJUMP &s) override;
         void visit(ImcCJUMP &s) override;
         void visit(ImcLABEL &s) override;
@@ -116,16 +123,30 @@ namespace Basic {
         void store(const std::string &address, const std::string &value);
         void copySlots(const std::string &dst, const std::string &src, std::size_t size);
         void emitCall(ImcCALL &call);
+        // x * k or x / k for a whole constant k, in fewer commands; false when `e` isn't one.
+        bool multiplyByWhole(ImcBINOP &e);
 
         // ---- output ----
-        void addRuntime();
+        void addRuntime(bool hasMain, bool hasTick);
+        // mcl:<function> for every top-level function taking only numbers.
+        void addEntries();
+        // Fresh memory and stack, before an entry point calls in.
+        static std::vector<std::string> resetLines();
+        // Print RV as a decimal, as "<function> returned <value>".
+        static std::vector<std::string> resultLines(const std::string &function);
+        // The macro function that runs `text`, made on first use. Returns its
+        // resource location (mcl:rt/cmdN).
+        std::string commandFile(const std::string &text);
         void writeFile(const std::string &path, const std::vector<std::string> &lines) const;
 
         void error(std::string message) { m_errors.push_back(std::move(message)); }
 
         const ImcLin &m_lin;
+        const Program &m_program;
+        const Memory &m_memory;
         std::unordered_map<std::string, long long> m_data; // data label -> address in bytes
         std::map<std::string, std::vector<std::string>> m_files; // path under function/ -> commands
+        std::unordered_map<std::string, std::string> m_commands;  // cmd() text -> its macro function
 
         // ---- state while a chunk is generated ----
         std::string m_function;
